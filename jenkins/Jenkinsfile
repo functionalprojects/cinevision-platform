@@ -4,6 +4,12 @@ pipeline {
         DOCKER_REGISTRY = "590396427103.dkr.ecr.us-east-1.amazonaws.com"
         AWS_DEFAULT_REGION = "us-east-1"
         GIT_COMMIT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+        // SonarCloud project keys – adjust per service
+        SONAR_PROJECT_API_GATEWAY = "cinevision_api-gateway"
+        SONAR_PROJECT_USER_SERVICE = "cinevision_user-service" 
+        SONAR_PROJECT_MOVIE_SERVICE = "cinevision_movie-service"
+        SONAR_PROJECT_EMAIL_SERVICE = "cinevision_email-service"
+        SONAR_PROJECT_EUREKA = "cinevision_eureka-server"
     }
     stages {
         stage('Checkout') {
@@ -16,12 +22,16 @@ pipeline {
                 }
             }
         }
-        stage('Build & Push') {
+        stage('Build, Test & Sonar Analysis') {
             parallel {
                 stage('API Gateway') {
                     steps {
                         dir('services/api-gateway') {
-                            sh 'mvn clean package'
+                            sh 'mvn clean compile test'
+                            withSonarQubeEnv('sonarcloud') {
+                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_API_GATEWAY} -Dsonar.organization=cinevision"
+                            }
+                            sh 'mvn package'
                             sh "docker build -t ${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT} ."
                             sh "docker push ${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT}"
                         }
@@ -30,7 +40,11 @@ pipeline {
                 stage('User Service') {
                     steps {
                         dir('services/user-service') {
-                            sh 'mvn clean package'
+                            sh 'mvn clean compile test'
+                            withSonarQubeEnv('sonarcloud') {
+                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_USER_SERVICE} -Dsonar.organization=cinevision"
+                            }
+                            sh 'mvn package'
                             sh "docker build -t ${DOCKER_REGISTRY}/user-service:${GIT_COMMIT} ."
                             sh "docker push ${DOCKER_REGISTRY}/user-service:${GIT_COMMIT}"
                         }
@@ -39,7 +53,11 @@ pipeline {
                 stage('Movie Service') {
                     steps {
                         dir('services/movie-service') {
-                            sh 'mvn clean package'
+                            sh 'mvn clean compile test'
+                            withSonarQubeEnv('sonarcloud') {
+                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_MOVIE_SERVICE} -Dsonar.organization=cinevision"
+                            }
+                            sh 'mvn package'
                             sh "docker build -t ${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT} ."
                             sh "docker push ${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT}"
                         }
@@ -48,7 +66,11 @@ pipeline {
                 stage('Email Service') {
                     steps {
                         dir('services/email-service') {
-                            sh 'mvn clean package'
+                            sh 'mvn clean compile test'
+                            withSonarQubeEnv('sonarcloud') {
+                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_EMAIL_SERVICE} -Dsonar.organization=cinevision"
+                            }
+                            sh 'mvn package'
                             sh "docker build -t ${DOCKER_REGISTRY}/email-service:${GIT_COMMIT} ."
                             sh "docker push ${DOCKER_REGISTRY}/email-service:${GIT_COMMIT}"
                         }
@@ -57,7 +79,11 @@ pipeline {
                 stage('Eureka Server') {
                     steps {
                         dir('services/eureka-server') {
-                            sh 'mvn clean package'
+                            sh 'mvn clean compile test'
+                            withSonarQubeEnv('sonarcloud') {
+                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_EUREKA} -Dsonar.organization=cinevision"
+                            }
+                            sh 'mvn package'
                             sh "docker build -t ${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT} ."
                             sh "docker push ${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT}"
                         }
@@ -75,7 +101,22 @@ pipeline {
                 }
             }
         }
-        stage('Security Scan') {
+        stage('Wait for SonarQube Quality Gate') {
+            steps {
+                script {
+                    // Wait for each service's quality gate
+                    def services = ['api-gateway', 'user-service', 'movie-service', 'email-service', 'eureka-server']
+                    for (service in services) {
+                        // Use the SonarQube plugin's waitForQualityGate step
+                        // This step requires the 'SonarQube Scanner' plugin installed
+                        timeout(time: 10, unit: 'MINUTES') {
+                            waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
+                        }
+                    }
+                }
+            }
+        }
+        stage('Security Scan (Trivy)') {
             steps {
                 script {
                     docker.image('aquasec/trivy:latest').inside {
