@@ -15,6 +15,6 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/cinevision/frontend:latest
+        image: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/frontend:latest
         ports:
         - containerPort: 80
