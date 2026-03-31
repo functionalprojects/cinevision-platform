@@ -22,3 +22,21 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Terraform local files
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*.tfplan
+*.tfplan.json
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Local override files (if you use them)
+terraform.rc
