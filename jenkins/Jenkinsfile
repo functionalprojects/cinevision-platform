@@ -104,7 +104,7 @@ pipeline {
         stage('Wait for SonarQube Quality Gate') {
             steps {
                 script {
-                    // Wait for each service's quality gate
+                    // Wait for each service's quality  gate
                     def services = ['api-gateway', 'user-service', 'movie-service', 'email-service', 'eureka-server']
                     for (service in services) {
                         // Use the SonarQube plugin's waitForQualityGate step
