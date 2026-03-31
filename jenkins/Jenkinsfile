@@ -117,7 +117,7 @@ pipeline {
                     def services = ['api-gateway', 'user-service', 'movie-service', 'email-service', 'eureka-server']
                     for (service in services) {
                         timeout(time: 10, unit: 'MINUTES') {
-                            // Wait for the quality gate of the most recent analysis
+                            // Wait for the quality gate of the most  recent analysis
                             // Note: This step may need the project key; currently it uses the default.
                             // For multiple analyses, you might need to capture task IDs.
                             waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
