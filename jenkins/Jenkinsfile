@@ -17,8 +17,18 @@ pipeline {
         }
         stage('ECR Login') {
             steps {
-                script {
-                    sh "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${DOCKER_REGISTRY}"
+                withCredentials([[
+                    $class: 'UsernamePasswordMultiBinding',
+                    credentialsId: 'ecr-cred',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    script {
+                        sh """
+                            aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | \
+                            docker login --username AWS --password-stdin ${DOCKER_REGISTRY}
+                        """
+                    }
                 }
             }
         }
@@ -104,12 +114,12 @@ pipeline {
         stage('Wait for SonarQube Quality Gate') {
             steps {
                 script {
-                    // Wait for each service's quality  gate
                     def services = ['api-gateway', 'user-service', 'movie-service', 'email-service', 'eureka-server']
                     for (service in services) {
-                        // Use the SonarQube plugin's waitForQualityGate step
-                        // This step requires the 'SonarQube Scanner' plugin installed
                         timeout(time: 10, unit: 'MINUTES') {
+                            // Wait for the quality gate of the most recent analysis
+                            // Note: This step may need the project key; currently it uses the default.
+                            // For multiple analyses, you might need to capture task IDs.
                             waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
                         }
                     }
