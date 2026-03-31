@@ -1,0 +1,134 @@
+pipeline {
+    agent any
+    environment {
+        DOCKER_REGISTRY = "590396427103.dkr.ecr.us-east-1.amazonaws.com"
+        AWS_DEFAULT_REGION = "us-east-1"
+        GIT_COMMIT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+    }
+    stages {
+        stage('Checkout') {
+            steps { checkout scm }
+        }
+        stage('ECR Login') {
+            steps {
+                script {
+                    sh "aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${DOCKER_REGISTRY}"
+                }
+            }
+        }
+        stage('Build & Push') {
+            parallel {
+                stage('API Gateway') {
+                    steps {
+                        dir('services/api-gateway') {
+                            sh 'mvn clean package'
+                            sh "docker build -t ${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT} ."
+                            sh "docker push ${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT}"
+                        }
+                    }
+                }
+                stage('User Service') {
+                    steps {
+                        dir('services/user-service') {
+                            sh 'mvn clean package'
+                            sh "docker build -t ${DOCKER_REGISTRY}/user-service:${GIT_COMMIT} ."
+                            sh "docker push ${DOCKER_REGISTRY}/user-service:${GIT_COMMIT}"
+                        }
+                    }
+                }
+                stage('Movie Service') {
+                    steps {
+                        dir('services/movie-service') {
+                            sh 'mvn clean package'
+                            sh "docker build -t ${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT} ."
+                            sh "docker push ${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT}"
+                        }
+                    }
+                }
+                stage('Email Service') {
+                    steps {
+                        dir('services/email-service') {
+                            sh 'mvn clean package'
+                            sh "docker build -t ${DOCKER_REGISTRY}/email-service:${GIT_COMMIT} ."
+                            sh "docker push ${DOCKER_REGISTRY}/email-service:${GIT_COMMIT}"
+                        }
+                    }
+                }
+                stage('Eureka Server') {
+                    steps {
+                        dir('services/eureka-server') {
+                            sh 'mvn clean package'
+                            sh "docker build -t ${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT} ."
+                            sh "docker push ${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT}"
+                        }
+                    }
+                }
+                stage('Frontend') {
+                    steps {
+                        dir('services/frontend') {
+                            sh 'npm install'
+                            sh 'npm run build'
+                            sh "docker build -t ${DOCKER_REGISTRY}/frontend:${GIT_COMMIT} ."
+                            sh "docker push ${DOCKER_REGISTRY}/frontend:${GIT_COMMIT}"
+                        }
+                    }
+                }
+            }
+        }
+        stage('Security Scan') {
+            steps {
+                script {
+                    docker.image('aquasec/trivy:latest').inside {
+                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT}"
+                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/user-service:${GIT_COMMIT}"
+                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT}"
+                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/email-service:${GIT_COMMIT}"
+                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT}"
+                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/frontend:${GIT_COMMIT}"
+                    }
+                }
+            }
+        }
+        stage('Update Kustomize') {
+            when { branch 'develop' }
+            steps {
+                script {
+                    sh """
+                        cd k8s/overlays/dev
+                        kustomize edit set image api-gateway=${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT}
+                        kustomize edit set image user-service=${DOCKER_REGISTRY}/user-service:${GIT_COMMIT}
+                        kustomize edit set image movie-service=${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT}
+                        kustomize edit set image email-service=${DOCKER_REGISTRY}/email-service:${GIT_COMMIT}
+                        kustomize edit set image eureka-server=${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT}
+                        kustomize edit set image frontend=${DOCKER_REGISTRY}/frontend:${GIT_COMMIT}
+                    """
+                    sh """
+                        git config user.email "jenkins@cinevision.com"
+                        git config user.name "Jenkins"
+                        git add k8s/overlays/dev/
+                        git commit -m "Update images to commit ${GIT_COMMIT}" || echo "No changes to commit"
+                        git push origin HEAD:develop
+                    """
+                }
+            }
+        }
+        stage('ArgoCD Sync') {
+            when { branch 'develop' }
+            steps {
+                echo "ArgoCD will automatically sync the changes"
+                // Optionally, you could call argocd CLI here
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo "Build succeeded"
+        }
+        failure {
+            echo "Build failed"
+        }
+    }
+}
