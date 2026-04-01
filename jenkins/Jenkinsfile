@@ -1,5 +1,6 @@
 pipeline {
     agent any
+
     environment {
         DOCKER_REGISTRY = "590396427103.dkr.ecr.us-east-1.amazonaws.com"
         AWS_DEFAULT_REGION = "us-east-1"
@@ -19,6 +20,7 @@ pipeline {
         stage('Checkout') {
             steps { checkout scm }
         }
+
         stage('ECR Login') {
             steps {
                 withCredentials([[
@@ -36,6 +38,7 @@ pipeline {
                 }
             }
         }
+
         stage('Initialize') {
             steps {
                 script {
@@ -61,9 +64,14 @@ pipeline {
                     env.ACTIVE_SERVICES_JSON = groovy.json.JsonOutput.toJson(activeServices)
                     env.HAS_SERVICES = activeServices.isEmpty() ? "false" : "true"
                     env.BUILT_SERVICES_JSON = "[]"
+
+                    // Debug: print the values
+                    echo "HAS_SERVICES = ${env.HAS_SERVICES}"
+                    echo "ACTIVE_SERVICES_JSON = ${env.ACTIVE_SERVICES_JSON}"
                 }
             }
         }
+
         stage('Build, Test & Sonar Analysis') {
             when { expression { env.HAS_SERVICES == 'true' } }
             steps {
@@ -71,25 +79,29 @@ pipeline {
                     def activeServices = groovy.json.JsonOutput.fromJson(env.ACTIVE_SERVICES_JSON)
                     def builtServices = []
                     def parallelStages = [:]
+
                     activeServices.each { serviceName, config ->
-                        parallelStages[serviceName] = {
-                            stage("Build ${serviceName}") {
-                                dir("services/${serviceName}") {
-                                    if (config.type == 'backend') {
+                        // Capture the service name in a local variable to avoid closure issues
+                        def svc = serviceName
+                        def cfg = config
+                        parallelStages[svc] = {
+                            stage("Build ${svc}") {
+                                dir("services/${svc}") {
+                                    if (cfg.type == 'backend') {
                                         sh 'mvn clean compile test'
                                         withSonarQubeEnv('sonarcloud') {
-                                            sh "mvn sonar:sonar -Dsonar.projectKey=${config.sonarKey} -Dsonar.organization=cinevision"
+                                            sh "mvn sonar:sonar -Dsonar.projectKey=${cfg.sonarKey} -Dsonar.organization=cinevision"
                                         }
                                         sh 'mvn package'
-                                        sh "docker build -t ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT} ."
-                                        sh "docker push ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
-                                    } else if (config.type == 'frontend') {
+                                        sh "docker build -t ${DOCKER_REGISTRY}/${svc}:${GIT_COMMIT} ."
+                                        sh "docker push ${DOCKER_REGISTRY}/${svc}:${GIT_COMMIT}"
+                                    } else if (cfg.type == 'frontend') {
                                         sh 'npm install'
                                         sh 'npm run build'
-                                        sh "docker build -t ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT} ."
-                                        sh "docker push ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
+                                        sh "docker build -t ${DOCKER_REGISTRY}/${svc}:${GIT_COMMIT} ."
+                                        sh "docker push ${DOCKER_REGISTRY}/${svc}:${GIT_COMMIT}"
                                     }
-                                    builtServices << serviceName
+                                    builtServices << svc
                                 }
                             }
                         }
@@ -97,9 +109,11 @@ pipeline {
                     parallel parallelStages
                     // Store built services list for later stages
                     env.BUILT_SERVICES_JSON = groovy.json.JsonOutput.toJson(builtServices)
+                    echo "Built services: ${env.BUILT_SERVICES_JSON}"
                 }
             }
         }
+
         stage('Wait for SonarQube Quality Gate') {
             when { expression { env.HAS_SERVICES == 'true' } }
             steps {
@@ -117,6 +131,7 @@ pipeline {
                 }
             }
         }
+
         stage('Security Scan (Trivy)') {
             when { expression { env.HAS_SERVICES == 'true' } }
             steps {
@@ -130,6 +145,7 @@ pipeline {
                 }
             }
         }
+
         stage('Update Kustomize') {
             when {
                 allOf {
@@ -156,6 +172,7 @@ pipeline {
                 }
             }
         }
+
         stage('ArgoCD Sync') {
             when {
                 allOf {
@@ -169,15 +186,16 @@ pipeline {
             }
         }
     }
+
     post {
         always {
             cleanWs()
         }
         success {
-            echo "Build succeeded"
+            echo " Build succeeded"
         }
         failure {
-            echo "Build failed"
+            echo " Build failed"
         }
     }
 }
