@@ -12,10 +12,10 @@ pipeline {
         SONAR_PROJECT_EUREKA = "cinevision_eureka-server"
         // These will be set in the Initialize stage
         HAS_SERVICES = "false"
-        ACTIVE_SERVICES = ""           // comma-separated list of service names
-        ACTIVE_SERVICES_TYPES = ""     // comma-separated list of types (backend/frontend)
-        ACTIVE_SERVICES_SONARKEYS = "" // comma-separated list of Sonar project keys
-        BUILT_SERVICES = ""            // comma-separated list of successfully built services
+        ACTIVE_SERVICES = ""
+        ACTIVE_SERVICES_TYPES = ""
+        ACTIVE_SERVICES_SONARKEYS = ""
+        BUILT_SERVICES = ""
     }
 
     stages {
@@ -53,32 +53,37 @@ pipeline {
                         'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
                     ]
 
-                    def activeNames = []
-                    def activeTypes = []
-                    def activeSonarKeys = []
+                    def activeNamesStr = ""
+                    def activeTypesStr = ""
+                    def activeSonarKeysStr = ""
 
                     possibleServices.each { serviceName, config ->
                         def servicePath = "services/${serviceName}"
                         if (fileExists("${servicePath}/${config.buildFile}")) {
-                            activeNames << serviceName
-                            activeTypes << config.type
-                            activeSonarKeys << (config.sonarKey ?: "")
+                            activeNamesStr += serviceName + ","
+                            activeTypesStr += config.type + ","
+                            activeSonarKeysStr += (config.sonarKey ?: "") + ","
                             echo "Service ${serviceName} is active and will be built."
                         } else {
                             echo "Service ${serviceName} is NOT active (missing ${config.buildFile}). Skipping."
                         }
                     }
 
-                    echo "Number of active services: ${activeNames.size()}"
-                    echo "Active services: ${activeNames}"
+                    // Remove trailing commas
+                    if (activeNamesStr.length() > 0) {
+                        activeNamesStr = activeNamesStr[0..-2]
+                        activeTypesStr = activeTypesStr[0..-2]
+                        activeSonarKeysStr = activeSonarKeysStr[0..-2]
+                    }
 
-                    env.ACTIVE_SERVICES = activeNames.join(',')
-                    env.ACTIVE_SERVICES_TYPES = activeTypes.join(',')
-                    env.ACTIVE_SERVICES_SONARKEYS = activeSonarKeys.join(',')
-                    env.HAS_SERVICES = activeNames.isEmpty() ? "false" : "true"
+                    env.ACTIVE_SERVICES = activeNamesStr
+                    env.ACTIVE_SERVICES_TYPES = activeTypesStr
+                    env.ACTIVE_SERVICES_SONARKEYS = activeSonarKeysStr
+                    env.HAS_SERVICES = (activeNamesStr.isEmpty() ? "false" : "true")
 
                     echo "HAS_SERVICES = ${env.HAS_SERVICES}"
                     echo "ACTIVE_SERVICES = ${env.ACTIVE_SERVICES}"
+                    echo "ACTIVE_SERVICES_TYPES = ${env.ACTIVE_SERVICES_TYPES}"
                 }
             }
         }
