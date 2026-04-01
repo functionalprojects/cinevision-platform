@@ -153,11 +153,14 @@ pipeline {
             when { expression { readFile('has-services.txt').trim() == 'true' } }
             steps {
                 script {
-                    docker.image('aquasec/trivy:latest').inside {
-                        def builtServices = readFile('built-services.txt').trim().split(',')
-                        builtServices.each { serviceName ->
-                            sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
-                        }
+                    def builtServices = readFile('built-services.txt').trim().split(',')
+                    builtServices.each { serviceName ->
+                        sh """
+                            docker run --rm \
+                                -v /var/run/docker.sock:/var/run/docker.sock \
+                                aquasec/trivy:0.46.0 \
+                                image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}
+                        """
                     }
                 }
             }
