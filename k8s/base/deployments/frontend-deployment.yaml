@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: frontend
   namespace: cinevision
+  labels:
+    app: frontend
 spec:
   replicas: 1
   selector:
@@ -12,9 +14,29 @@ spec:
     metadata:
       labels:
         app: frontend
+      annotations:
+        # Prometheus annotations (optional; frontend may not expose metrics)
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+        prometheus.io/path: "/metrics"   # Default; adjust if your frontend serves metrics
     spec:
       containers:
       - name: frontend
         image: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/frontend:latest
         ports:
-        - containerPort: 80
+        - name: http                     # named port (must match service port name)
+          containerPort: 80
+          protocol: TCP
+        # Optional liveness and readiness probes (adjust path if needed)
+        # livenessProbe:
+        #   httpGet:
+        #     path: /
+        #     port: 80
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10
+        # readinessProbe:
+        #   httpGet:
+        #     path: /
+        #     port: 80
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10

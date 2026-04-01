@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: user-service
   namespace: cinevision
+  labels:
+    app: user-service
 spec:
   replicas: 1
   selector:
@@ -12,14 +14,33 @@ spec:
     metadata:
       labels:
         app: user-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
     spec:
       containers:
       - name: user-service
         image: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/user-service:latest
         ports:
-        - containerPort: 8080
+        - name: http                     # named port (must match service port name)
+          containerPort: 8080
+          protocol: TCP
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: "kubernetes"
         - name: SPRING_DATA_MONGODB_URI
           value: "mongodb://rootuser:rootpass@mongodb-service:27017/user?authSource=admin"
+        # Optional liveness and readiness probes (recommended)
+        # livenessProbe:
+        #   httpGet:
+        #     path: /actuator/health/liveness
+        #     port: 8080
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10
+        # readinessProbe:
+        #   httpGet:
+        #     path: /actuator/health/readiness
+        #     port: 8080
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10

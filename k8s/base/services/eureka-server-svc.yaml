@@ -7,6 +7,7 @@ spec:
   selector:
     app: eureka-server
   ports:
-  - port: 8761
+  - name: http
+    port: 8080
     targetPort: 8761
   type: ClusterIP

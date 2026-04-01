@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: api-gateway
   namespace: cinevision
+  labels:
+    app: api-gateway
 spec:
   replicas: 1
   selector:
@@ -12,12 +14,31 @@ spec:
     metadata:
       labels:
         app: api-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
     spec:
       containers:
       - name: api-gateway
         image: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/api-gateway:latest
         ports:
-        - containerPort: 8080
+        - name: http            # <-- named port (must match service port name)
+          containerPort: 8080
+          protocol: TCP
         env:
         - name: SPRING_PROFILES_ACTIVE
           value: "kubernetes"
+        # Optional liveness and readiness probes (recommended)
+        # livenessProbe:
+        #   httpGet:
+        #     path: /actuator/health/liveness
+        #     port: 8080
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10
+        # readinessProbe:
+        #   httpGet:
+        #     path: /actuator/health/readiness
+        #     port: 8080
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10
