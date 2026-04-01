@@ -4,13 +4,17 @@ pipeline {
         DOCKER_REGISTRY = "590396427103.dkr.ecr.us-east-1.amazonaws.com"
         AWS_DEFAULT_REGION = "us-east-1"
         GIT_COMMIT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-        // SonarCloud project keys – adjust per service
         SONAR_PROJECT_API_GATEWAY = "cinevision_api-gateway"
         SONAR_PROJECT_USER_SERVICE = "cinevision_user-service"
         SONAR_PROJECT_MOVIE_SERVICE = "cinevision_movie-service"
         SONAR_PROJECT_EMAIL_SERVICE = "cinevision_email-service"
         SONAR_PROJECT_EUREKA = "cinevision_eureka-server"
     }
+
+    // Global variables to hold active services and built list
+    def activeServicesMap = [:]
+    def builtServicesList = []
+
     stages {
         stage('Checkout') {
             steps { checkout scm }
@@ -35,7 +39,6 @@ pipeline {
         stage('Determine Active Services') {
             steps {
                 script {
-                    // Define all possible services and their required build files
                     def possibleServices = [
                         'api-gateway':   [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_API_GATEWAY ],
                         'user-service':  [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_USER_SERVICE ],
@@ -45,30 +48,27 @@ pipeline {
                         'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
                     ]
 
-                    // Determine which services have source code present
-                    activeServices = [:]
-                    builtServices = []   // will collect names of services that were built
+                    activeServicesMap = [:]
+                    builtServicesList = []
+
                     possibleServices.each { serviceName, config ->
                         def servicePath = "services/${serviceName}"
                         if (fileExists("${servicePath}/${config.buildFile}")) {
-                            activeServices[serviceName] = config
+                            activeServicesMap[serviceName] = config
                             echo "Service ${serviceName} is active and will be built."
                         } else {
                             echo "Service ${serviceName} is NOT active (missing ${config.buildFile}). Skipping."
                         }
                     }
-                    // Store activeServices as a variable for later use
-                    env.ACTIVE_SERVICES_JSON = activeServices.keySet().join(',')
                 }
             }
         }
         stage('Build, Test & Sonar Analysis') {
-            when { expression { !env.ACTIVE_SERVICES_JSON.isEmpty() } }
+            when { expression { !activeServicesMap.isEmpty() } }
             steps {
                 script {
-                    // Build a map of parallel stages
                     def parallelStages = [:]
-                    activeServices.each { serviceName, config ->
+                    activeServicesMap.each { serviceName, config ->
                         parallelStages[serviceName] = {
                             stage("Build ${serviceName}") {
                                 dir("services/${serviceName}") {
@@ -86,24 +86,21 @@ pipeline {
                                         sh "docker build -t ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT} ."
                                         sh "docker push ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
                                     }
-                                    // Mark this service as built
-                                    builtServices << serviceName
+                                    builtServicesList << serviceName
                                 }
                             }
                         }
                     }
-                    // Run all stages in parallel
                     parallel parallelStages
                 }
             }
         }
         stage('Wait for SonarQube Quality Gate') {
-            when { expression { builtServices != null && !builtServices.isEmpty() } }
+            when { expression { !builtServicesList.isEmpty() } }
             steps {
                 script {
-                    // Wait for the quality gate for each backend service that was built
-                    builtServices.each { serviceName ->
-                        def config = activeServices[serviceName]
+                    builtServicesList.each { serviceName ->
+                        def config = activeServicesMap[serviceName]
                         if (config.type == 'backend') {
                             timeout(time: 10, unit: 'MINUTES') {
                                 waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
@@ -114,11 +111,11 @@ pipeline {
             }
         }
         stage('Security Scan (Trivy)') {
-            when { expression { builtServices != null && !builtServices.isEmpty() } }
+            when { expression { !builtServicesList.isEmpty() } }
             steps {
                 script {
                     docker.image('aquasec/trivy:latest').inside {
-                        builtServices.each { serviceName ->
+                        builtServicesList.each { serviceName ->
                             sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
                         }
                     }
@@ -126,17 +123,20 @@ pipeline {
             }
         }
         stage('Update Kustomize') {
-            when { branch 'develop' && builtServices != null && !builtServices.isEmpty() }
+            when {
+                allOf {
+                    branch 'develop'
+                    expression { !builtServicesList.isEmpty() }
+                }
+            }
             steps {
                 script {
-                    // Update image tags in the dev overlay only for built services
-                    builtServices.each { serviceName ->
+                    builtServicesList.each { serviceName ->
                         sh """
                             cd k8s/overlays/dev
                             kustomize edit set image ${serviceName}=${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}
                         """
                     }
-                    // Commit and push the updated overlay
                     sh """
                         git config user.email "jenkins@cinevision.com"
                         git config user.name "Jenkins"
@@ -148,7 +148,12 @@ pipeline {
             }
         }
         stage('ArgoCD Sync') {
-            when { branch 'develop' && builtServices != null && !builtServices.isEmpty() }
+            when {
+                allOf {
+                    branch 'develop'
+                    expression { !builtServicesList.isEmpty() }
+                }
+            }
             steps {
                 echo "ArgoCD will automatically sync the changes"
                 // Optionally, you could call argocd CLI here
