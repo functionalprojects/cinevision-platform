@@ -138,7 +138,7 @@ pipeline {
                     def activeNames = readFile('active-names.txt').trim().split(',')
                     def activeTypes = readFile('active-types.txt').trim().split(',')
                     builtServices.each { serviceName ->
-                        def idx = activeNames.indexOf(serviceName)
+                        def idx = activeNames.toList().findIndexOf { it == serviceName } 
                         if (idx >= 0 && activeTypes[idx] == 'backend') {
                             timeout(time: 10, unit: 'MINUTES') {
                                 waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
