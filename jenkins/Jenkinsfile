@@ -6,7 +6,7 @@ pipeline {
         GIT_COMMIT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
         // SonarCloud project keys – adjust per service
         SONAR_PROJECT_API_GATEWAY = "cinevision_api-gateway"
-        SONAR_PROJECT_USER_SERVICE = "cinevision_user-service" 
+        SONAR_PROJECT_USER_SERVICE = "cinevision_user-service"
         SONAR_PROJECT_MOVIE_SERVICE = "cinevision_movie-service"
         SONAR_PROJECT_EMAIL_SERVICE = "cinevision_email-service"
         SONAR_PROJECT_EUREKA = "cinevision_eureka-server"
@@ -32,139 +32,123 @@ pipeline {
                 }
             }
         }
+        stage('Determine Active Services') {
+            steps {
+                script {
+                    // Define all possible services and their required build files
+                    def possibleServices = [
+                        'api-gateway':   [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_API_GATEWAY ],
+                        'user-service':  [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_USER_SERVICE ],
+                        'movie-service': [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_MOVIE_SERVICE ],
+                        'email-service': [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_EMAIL_SERVICE ],
+                        'eureka-server': [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_EUREKA ],
+                        'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
+                    ]
+
+                    // Determine which services have source code present
+                    activeServices = [:]
+                    builtServices = []   // will collect names of services that were built
+                    possibleServices.each { serviceName, config ->
+                        def servicePath = "services/${serviceName}"
+                        if (fileExists("${servicePath}/${config.buildFile}")) {
+                            activeServices[serviceName] = config
+                            echo "Service ${serviceName} is active and will be built."
+                        } else {
+                            echo "Service ${serviceName} is NOT active (missing ${config.buildFile}). Skipping."
+                        }
+                    }
+                    // Store activeServices as a variable for later use
+                    env.ACTIVE_SERVICES_JSON = activeServices.keySet().join(',')
+                }
+            }
+        }
         stage('Build, Test & Sonar Analysis') {
-            parallel {
-                stage('API Gateway') {
-                    steps {
-                        dir('services/api-gateway') {
-                            sh 'mvn clean compile test'
-                            withSonarQubeEnv('sonarcloud') {
-                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_API_GATEWAY} -Dsonar.organization=cinevision"
+            when { expression { !env.ACTIVE_SERVICES_JSON.isEmpty() } }
+            steps {
+                script {
+                    // Build a map of parallel stages
+                    def parallelStages = [:]
+                    activeServices.each { serviceName, config ->
+                        parallelStages[serviceName] = {
+                            stage("Build ${serviceName}") {
+                                dir("services/${serviceName}") {
+                                    if (config.type == 'backend') {
+                                        sh 'mvn clean compile test'
+                                        withSonarQubeEnv('sonarcloud') {
+                                            sh "mvn sonar:sonar -Dsonar.projectKey=${config.sonarKey} -Dsonar.organization=cinevision"
+                                        }
+                                        sh 'mvn package'
+                                        sh "docker build -t ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT} ."
+                                        sh "docker push ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
+                                    } else if (config.type == 'frontend') {
+                                        sh 'npm install'
+                                        sh 'npm run build'
+                                        sh "docker build -t ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT} ."
+                                        sh "docker push ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
+                                    }
+                                    // Mark this service as built
+                                    builtServices << serviceName
+                                }
                             }
-                            sh 'mvn package'
-                            sh "docker build -t ${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT} ."
-                            sh "docker push ${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT}"
                         }
                     }
-                }
-                stage('User Service') {
-                    steps {
-                        dir('services/user-service') {
-                            sh 'mvn clean compile test'
-                            withSonarQubeEnv('sonarcloud') {
-                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_USER_SERVICE} -Dsonar.organization=cinevision"
-                            }
-                            sh 'mvn package'
-                            sh "docker build -t ${DOCKER_REGISTRY}/user-service:${GIT_COMMIT} ."
-                            sh "docker push ${DOCKER_REGISTRY}/user-service:${GIT_COMMIT}"
-                        }
-                    }
-                }
-                stage('Movie Service') {
-                    steps {
-                        dir('services/movie-service') {
-                            sh 'mvn clean compile test'
-                            withSonarQubeEnv('sonarcloud') {
-                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_MOVIE_SERVICE} -Dsonar.organization=cinevision"
-                            }
-                            sh 'mvn package'
-                            sh "docker build -t ${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT} ."
-                            sh "docker push ${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT}"
-                        }
-                    }
-                }
-                stage('Email Service') {
-                    steps {
-                        dir('services/email-service') {
-                            sh 'mvn clean compile test'
-                            withSonarQubeEnv('sonarcloud') {
-                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_EMAIL_SERVICE} -Dsonar.organization=cinevision"
-                            }
-                            sh 'mvn package'
-                            sh "docker build -t ${DOCKER_REGISTRY}/email-service:${GIT_COMMIT} ."
-                            sh "docker push ${DOCKER_REGISTRY}/email-service:${GIT_COMMIT}"
-                        }
-                    }
-                }
-                stage('Eureka Server') {
-                    steps {
-                        dir('services/eureka-server') {
-                            sh 'mvn clean compile test'
-                            withSonarQubeEnv('sonarcloud') {
-                                sh "mvn sonar:sonar -Dsonar.projectKey=${SONAR_PROJECT_EUREKA} -Dsonar.organization=cinevision"
-                            }
-                            sh 'mvn package'
-                            sh "docker build -t ${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT} ."
-                            sh "docker push ${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT}"
-                        }
-                    }
-                }
-                stage('Frontend') {
-                    steps {
-                        dir('services/frontend') {
-                            sh 'npm install'
-                            sh 'npm run build'
-                            sh "docker build -t ${DOCKER_REGISTRY}/frontend:${GIT_COMMIT} ."
-                            sh "docker push ${DOCKER_REGISTRY}/frontend:${GIT_COMMIT}"
-                        }
-                    }
+                    // Run all stages in parallel
+                    parallel parallelStages
                 }
             }
         }
         stage('Wait for SonarQube Quality Gate') {
+            when { expression { builtServices != null && !builtServices.isEmpty() } }
             steps {
                 script {
-                    def services = ['api-gateway', 'user-service', 'movie-service', 'email-service', 'eureka-server']
-                    for (service in services) {
-                        timeout(time: 10, unit: 'MINUTES') {
-                            // Wait for the quality gate of the most  recent analysis
-                            // Note: This step may need the project key; currently it uses the default.
-                            // For multiple analyses, you might need to capture task IDs.
-                            waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
+                    // Wait for the quality gate for each backend service that was built
+                    builtServices.each { serviceName ->
+                        def config = activeServices[serviceName]
+                        if (config.type == 'backend') {
+                            timeout(time: 10, unit: 'MINUTES') {
+                                waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
+                            }
                         }
                     }
                 }
             }
         }
         stage('Security Scan (Trivy)') {
+            when { expression { builtServices != null && !builtServices.isEmpty() } }
             steps {
                 script {
                     docker.image('aquasec/trivy:latest').inside {
-                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT}"
-                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/user-service:${GIT_COMMIT}"
-                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT}"
-                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/email-service:${GIT_COMMIT}"
-                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT}"
-                        sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/frontend:${GIT_COMMIT}"
+                        builtServices.each { serviceName ->
+                            sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
+                        }
                     }
                 }
             }
         }
         stage('Update Kustomize') {
-            when { branch 'develop' }
+            when { branch 'develop' && builtServices != null && !builtServices.isEmpty() }
             steps {
                 script {
-                    sh """
-                        cd k8s/overlays/dev
-                        kustomize edit set image api-gateway=${DOCKER_REGISTRY}/api-gateway:${GIT_COMMIT}
-                        kustomize edit set image user-service=${DOCKER_REGISTRY}/user-service:${GIT_COMMIT}
-                        kustomize edit set image movie-service=${DOCKER_REGISTRY}/movie-service:${GIT_COMMIT}
-                        kustomize edit set image email-service=${DOCKER_REGISTRY}/email-service:${GIT_COMMIT}
-                        kustomize edit set image eureka-server=${DOCKER_REGISTRY}/eureka-server:${GIT_COMMIT}
-                        kustomize edit set image frontend=${DOCKER_REGISTRY}/frontend:${GIT_COMMIT}
-                    """
+                    // Update image tags in the dev overlay only for built services
+                    builtServices.each { serviceName ->
+                        sh """
+                            cd k8s/overlays/dev
+                            kustomize edit set image ${serviceName}=${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}
+                        """
+                    }
+                    // Commit and push the updated overlay
                     sh """
                         git config user.email "jenkins@cinevision.com"
                         git config user.name "Jenkins"
                         git add k8s/overlays/dev/
-                        git commit -m "Update images to commit ${GIT_COMMIT}" || echo "No changes to commit"
+                        git commit -m "Update images for commit ${GIT_COMMIT}" || echo "No changes to commit"
                         git push origin HEAD:develop
                     """
                 }
             }
         }
         stage('ArgoCD Sync') {
-            when { branch 'develop' }
+            when { branch 'develop' && builtServices != null && !builtServices.isEmpty() }
             steps {
                 echo "ArgoCD will automatically sync the changes"
                 // Optionally, you could call argocd CLI here
