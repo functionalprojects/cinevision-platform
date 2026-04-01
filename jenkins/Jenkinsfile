@@ -10,7 +10,7 @@ pipeline {
         SONAR_PROJECT_MOVIE_SERVICE = "cinevision_movie-service"
         SONAR_PROJECT_EMAIL_SERVICE = "cinevision_email-service"
         SONAR_PROJECT_EUREKA = "cinevision_eureka-server"
-        // We'll set these in the Initialize stage
+        // These will be set in the Initialize stage
         HAS_SERVICES = "false"
         ACTIVE_SERVICES_JSON = "{}"
         BUILT_SERVICES_JSON = "[]"
@@ -42,6 +42,7 @@ pipeline {
         stage('Initialize') {
             steps {
                 script {
+                    // Define possible services and their build files
                     def possibleServices = [
                         'api-gateway':   [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_API_GATEWAY ],
                         'user-service':  [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_USER_SERVICE ],
@@ -50,22 +51,29 @@ pipeline {
                         'eureka-server': [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_EUREKA ],
                         'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
                     ]
-                    def activeServices = [:]
+
+                    // Map to store active services
+                    def servicesMap = [:]
+
                     possibleServices.each { serviceName, config ->
                         def servicePath = "services/${serviceName}"
                         if (fileExists("${servicePath}/${config.buildFile}")) {
-                            activeServices[serviceName] = config
+                            servicesMap[serviceName] = config
                             echo "Service ${serviceName} is active and will be built."
                         } else {
                             echo "Service ${serviceName} is NOT active (missing ${config.buildFile}). Skipping."
                         }
                     }
-                    // Store as JSON strings in environment variables
-                    env.ACTIVE_SERVICES_JSON = groovy.json.JsonOutput.toJson(activeServices)
-                    env.HAS_SERVICES = activeServices.isEmpty() ? "false" : "true"
-                    env.BUILT_SERVICES_JSON = "[]"
 
-                    // Debug: print the values
+                    // Debug: print the map size and keys
+                    echo "servicesMap size = ${servicesMap.size()}"
+                    echo "servicesMap keys = ${servicesMap.keySet()}"
+
+                    // Convert to JSON and store in environment variables
+                    env.ACTIVE_SERVICES_JSON = groovy.json.JsonOutput.toJson(servicesMap)
+                    env.HAS_SERVICES = servicesMap.isEmpty() ? "false" : "true"
+                    env.BUILT_SERVICES_JSON = "[]"  // will be updated later
+
                     echo "HAS_SERVICES = ${env.HAS_SERVICES}"
                     echo "ACTIVE_SERVICES_JSON = ${env.ACTIVE_SERVICES_JSON}"
                 }
@@ -81,7 +89,7 @@ pipeline {
                     def parallelStages = [:]
 
                     activeServices.each { serviceName, config ->
-                        // Capture the service name in a local variable to avoid closure issues
+                        // Capture current values to avoid closure issues
                         def svc = serviceName
                         def cfg = config
                         parallelStages[svc] = {
@@ -107,7 +115,6 @@ pipeline {
                         }
                     }
                     parallel parallelStages
-                    // Store built services list for later stages
                     env.BUILT_SERVICES_JSON = groovy.json.JsonOutput.toJson(builtServices)
                     echo "Built services: ${env.BUILT_SERVICES_JSON}"
                 }
@@ -192,10 +199,10 @@ pipeline {
             cleanWs()
         }
         success {
-            echo " Build succeeded"
+            echo "Build succeeded"
         }
         failure {
-            echo " Build failed"
+            echo "Build failed"
         }
     }
 }
