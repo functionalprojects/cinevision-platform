@@ -179,16 +179,23 @@ pipeline {
                     builtServices.each { serviceName ->
                         sh """
                             cd k8s/overlays/dev
-                            kustomize edit set image ${serviceName}=${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}
+                            kustomize edit set image ${serviceName}=${DOCKER_REGISTRY}/cinevision/${serviceName}:${GIT_COMMIT}
                         """
                     }
-                    sh """
-                        git config user.email "wadguakillian@gmail.com"
-                        git config user.name "killian-web"
-                        git add k8s/overlays/dev/
-                        git commit -m "Update images for commit ${GIT_COMMIT}" || echo "No changes to commit"
-                        git push origin HEAD:develop
-                    """
+                    withCredentials([[
+                        $class: 'UsernamePasswordMultiBinding',
+                        credentialsId: 'github-token',
+                        usernameVariable: 'GITHUB_USER',
+                        passwordVariable: 'GITHUB_TOKEN'
+                    ]]) {
+                        sh """
+                            git config user.email "jenkins@cinevision.com"
+                            git config user.name "Jenkins"
+                            git add k8s/overlays/dev/
+                            git commit -m "Update images for commit ${GIT_COMMIT}" || echo "No changes to commit"
+                            git push https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/functionalprojects/cinevision-platform.git HEAD:develop
+                        """
+                    }
                 }
             }
         }
