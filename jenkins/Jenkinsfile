@@ -107,7 +107,7 @@ pipeline {
                                     if (type == 'backend') {
                                         sh 'mvn clean compile test'
                                         withSonarQubeEnv('sonarcloud') {
-                                            sh "mvn sonar:sonar -Dsonar.projectKey=${sonarKey} -Dsonar.organization=cinevision"
+                                            sh "mvn sonar:sonar -Dsonar.projectKey=${sonarKey} -Dsonar.organization=functionalprojects"
                                         }
                                         sh 'mvn package'
                                         sh "docker build -t ${DOCKER_REGISTRY}/${svc}:${GIT_COMMIT} ."
