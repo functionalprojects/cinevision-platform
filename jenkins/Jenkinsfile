@@ -5,6 +5,9 @@ pipeline {
     }
 
     environment {
+
+        JAVA_HOME = '/usr/lib/jvm/java-21-openjdk-amd64'
+        PATH = "${JAVA_HOME}/bin:${env.PATH}"
         DOCKER_REGISTRY = "590396427103.dkr.ecr.us-east-1.amazonaws.com"
         AWS_DEFAULT_REGION = "us-east-1"
         GIT_COMMIT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
