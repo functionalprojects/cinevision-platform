@@ -9,11 +9,11 @@ pipeline {
         SONAR_PROJECT_MOVIE_SERVICE = "cinevision_movie-service"
         SONAR_PROJECT_EMAIL_SERVICE = "cinevision_email-service"
         SONAR_PROJECT_EUREKA = "cinevision_eureka-server"
+        // We'll set these in the Initialize stage
+        HAS_SERVICES = "false"
+        ACTIVE_SERVICES_JSON = "{}"
+        BUILT_SERVICES_JSON = "[]"
     }
-
-    // Global variables to hold active services and built list
-    def activeServicesMap = [:]
-    def builtServicesList = []
 
     stages {
         stage('Checkout') {
@@ -36,7 +36,7 @@ pipeline {
                 }
             }
         }
-        stage('Determine Active Services') {
+        stage('Initialize') {
             steps {
                 script {
                     def possibleServices = [
@@ -47,28 +47,31 @@ pipeline {
                         'eureka-server': [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_EUREKA ],
                         'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
                     ]
-
-                    activeServicesMap = [:]
-                    builtServicesList = []
-
+                    def activeServices = [:]
                     possibleServices.each { serviceName, config ->
                         def servicePath = "services/${serviceName}"
                         if (fileExists("${servicePath}/${config.buildFile}")) {
-                            activeServicesMap[serviceName] = config
+                            activeServices[serviceName] = config
                             echo "Service ${serviceName} is active and will be built."
                         } else {
                             echo "Service ${serviceName} is NOT active (missing ${config.buildFile}). Skipping."
                         }
                     }
+                    // Store as JSON strings in environment variables
+                    env.ACTIVE_SERVICES_JSON = groovy.json.JsonOutput.toJson(activeServices)
+                    env.HAS_SERVICES = activeServices.isEmpty() ? "false" : "true"
+                    env.BUILT_SERVICES_JSON = "[]"
                 }
             }
         }
         stage('Build, Test & Sonar Analysis') {
-            when { expression { !activeServicesMap.isEmpty() } }
+            when { expression { env.HAS_SERVICES == 'true' } }
             steps {
                 script {
+                    def activeServices = groovy.json.JsonOutput.fromJson(env.ACTIVE_SERVICES_JSON)
+                    def builtServices = []
                     def parallelStages = [:]
-                    activeServicesMap.each { serviceName, config ->
+                    activeServices.each { serviceName, config ->
                         parallelStages[serviceName] = {
                             stage("Build ${serviceName}") {
                                 dir("services/${serviceName}") {
@@ -86,21 +89,25 @@ pipeline {
                                         sh "docker build -t ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT} ."
                                         sh "docker push ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
                                     }
-                                    builtServicesList << serviceName
+                                    builtServices << serviceName
                                 }
                             }
                         }
                     }
                     parallel parallelStages
+                    // Store built services list for later stages
+                    env.BUILT_SERVICES_JSON = groovy.json.JsonOutput.toJson(builtServices)
                 }
             }
         }
         stage('Wait for SonarQube Quality Gate') {
-            when { expression { !builtServicesList.isEmpty() } }
+            when { expression { env.HAS_SERVICES == 'true' } }
             steps {
                 script {
-                    builtServicesList.each { serviceName ->
-                        def config = activeServicesMap[serviceName]
+                    def builtServices = groovy.json.JsonOutput.fromJson(env.BUILT_SERVICES_JSON)
+                    def activeServices = groovy.json.JsonOutput.fromJson(env.ACTIVE_SERVICES_JSON)
+                    builtServices.each { serviceName ->
+                        def config = activeServices[serviceName]
                         if (config.type == 'backend') {
                             timeout(time: 10, unit: 'MINUTES') {
                                 waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
@@ -111,11 +118,12 @@ pipeline {
             }
         }
         stage('Security Scan (Trivy)') {
-            when { expression { !builtServicesList.isEmpty() } }
+            when { expression { env.HAS_SERVICES == 'true' } }
             steps {
                 script {
                     docker.image('aquasec/trivy:latest').inside {
-                        builtServicesList.each { serviceName ->
+                        def builtServices = groovy.json.JsonOutput.fromJson(env.BUILT_SERVICES_JSON)
+                        builtServices.each { serviceName ->
                             sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
                         }
                     }
@@ -126,12 +134,13 @@ pipeline {
             when {
                 allOf {
                     branch 'develop'
-                    expression { !builtServicesList.isEmpty() }
+                    expression { env.HAS_SERVICES == 'true' }
                 }
             }
             steps {
                 script {
-                    builtServicesList.each { serviceName ->
+                    def builtServices = groovy.json.JsonOutput.fromJson(env.BUILT_SERVICES_JSON)
+                    builtServices.each { serviceName ->
                         sh """
                             cd k8s/overlays/dev
                             kustomize edit set image ${serviceName}=${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}
@@ -151,7 +160,7 @@ pipeline {
             when {
                 allOf {
                     branch 'develop'
-                    expression { !builtServicesList.isEmpty() }
+                    expression { env.HAS_SERVICES == 'true' }
                 }
             }
             steps {
