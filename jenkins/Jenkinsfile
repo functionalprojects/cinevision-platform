@@ -159,7 +159,7 @@ pipeline {
                             docker run --rm \
                                 -v /var/run/docker.sock:/var/run/docker.sock \
                                 aquasec/trivy:0.46.0 \
-                                image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}
+                                image --skip-java-db-update --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}
                         """
                     }
                 }
