@@ -183,8 +183,8 @@ pipeline {
                         """
                     }
                     sh """
-                        git config user.email "jenkins@cinevision.com"
-                        git config user.name "Jenkins"
+                        git config user.email "wadguakillian@gmail.com"
+                        git config user.name "killian-web"
                         git add k8s/overlays/dev/
                         git commit -m "Update images for commit ${GIT_COMMIT}" || echo "No changes to commit"
                         git push origin HEAD:develop
