@@ -42,7 +42,7 @@ pipeline {
         stage('Initialize') {
             steps {
                 script {
-                    // Define possible services and their build files
+                    // Define possible services with their build files
                     def possibleServices = [
                         'api-gateway':   [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_API_GATEWAY ],
                         'user-service':  [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_USER_SERVICE ],
@@ -52,28 +52,32 @@ pipeline {
                         'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
                     ]
 
-                    // Map to store active services
-                    def servicesMap = [:]
-
+                    // Collect active services into a list of maps (easier to serialize)
+                    def servicesList = []
                     possibleServices.each { serviceName, config ->
                         def servicePath = "services/${serviceName}"
                         if (fileExists("${servicePath}/${config.buildFile}")) {
-                            servicesMap[serviceName] = config
+                            servicesList << [
+                                name: serviceName,
+                                type: config.type,
+                                buildFile: config.buildFile,
+                                sonarKey: config.sonarKey
+                            ]
                             echo "Service ${serviceName} is active and will be built."
                         } else {
                             echo "Service ${serviceName} is NOT active (missing ${config.buildFile}). Skipping."
                         }
                     }
 
-                    // Debug: print the map size and keys
-                    echo "servicesMap size = ${servicesMap.size()}"
-                    echo "servicesMap keys = ${servicesMap.keySet()}"
+                    echo "Number of active services: ${servicesList.size()}"
+                    echo "Active services: ${servicesList.collect { it.name }}"
 
-                    // Convert to JSON and store in environment variables
-                    env.ACTIVE_SERVICES_JSON = groovy.json.JsonOutput.toJson(servicesMap)
-                    env.HAS_SERVICES = servicesMap.isEmpty() ? "false" : "true"
-                    env.BUILT_SERVICES_JSON = "[]"  // will be updated later
+                    // Convert the list to JSON
+                    def activeServicesJson = groovy.json.JsonOutput.toJson(servicesList)
+                    env.ACTIVE_SERVICES_JSON = activeServicesJson
+                    env.HAS_SERVICES = servicesList.isEmpty() ? "false" : "true"
 
+                    // Double‑check what we stored
                     echo "HAS_SERVICES = ${env.HAS_SERVICES}"
                     echo "ACTIVE_SERVICES_JSON = ${env.ACTIVE_SERVICES_JSON}"
                 }
@@ -88,10 +92,9 @@ pipeline {
                     def builtServices = []
                     def parallelStages = [:]
 
-                    activeServices.each { serviceName, config ->
-                        // Capture current values to avoid closure issues
-                        def svc = serviceName
-                        def cfg = config
+                    activeServices.each { service ->
+                        def svc = service.name
+                        def cfg = service
                         parallelStages[svc] = {
                             stage("Build ${svc}") {
                                 dir("services/${svc}") {
@@ -127,9 +130,10 @@ pipeline {
                 script {
                     def builtServices = groovy.json.JsonOutput.fromJson(env.BUILT_SERVICES_JSON)
                     def activeServices = groovy.json.JsonOutput.fromJson(env.ACTIVE_SERVICES_JSON)
+                    // Wait for each backend service's Sonar analysis
                     builtServices.each { serviceName ->
-                        def config = activeServices[serviceName]
-                        if (config.type == 'backend') {
+                        def serviceConfig = activeServices.find { it.name == serviceName }
+                        if (serviceConfig && serviceConfig.type == 'backend') {
                             timeout(time: 10, unit: 'MINUTES') {
                                 waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
                             }
