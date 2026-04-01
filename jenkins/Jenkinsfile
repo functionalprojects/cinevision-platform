@@ -10,12 +10,6 @@ pipeline {
         SONAR_PROJECT_MOVIE_SERVICE = "cinevision_movie-service"
         SONAR_PROJECT_EMAIL_SERVICE = "cinevision_email-service"
         SONAR_PROJECT_EUREKA = "cinevision_eureka-server"
-        // These will be set in the Initialize stage
-        HAS_SERVICES = "false"
-        ACTIVE_SERVICES = ""
-        ACTIVE_SERVICES_TYPES = ""
-        ACTIVE_SERVICES_SONARKEYS = ""
-        BUILT_SERVICES = ""
     }
 
     stages {
@@ -53,48 +47,40 @@ pipeline {
                         'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
                     ]
 
-                    def activeNamesStr = ""
-                    def activeTypesStr = ""
-                    def activeSonarKeysStr = ""
+                    def activeNames = []
+                    def activeTypes = []
+                    def activeSonarKeys = []
 
                     possibleServices.each { serviceName, config ->
                         def servicePath = "services/${serviceName}"
                         if (fileExists("${servicePath}/${config.buildFile}")) {
-                            activeNamesStr += serviceName + ","
-                            activeTypesStr += config.type + ","
-                            activeSonarKeysStr += (config.sonarKey ?: "") + ","
+                            activeNames << serviceName
+                            activeTypes << config.type
+                            activeSonarKeys << (config.sonarKey ?: "")
                             echo "Service ${serviceName} is active and will be built."
                         } else {
                             echo "Service ${serviceName} is NOT active (missing ${config.buildFile}). Skipping."
                         }
                     }
 
-                    // Remove trailing commas
-                    if (activeNamesStr.length() > 0) {
-                        activeNamesStr = activeNamesStr[0..-2]
-                        activeTypesStr = activeTypesStr[0..-2]
-                        activeSonarKeysStr = activeSonarKeysStr[0..-2]
-                    }
+                    // Write the lists to files
+                    writeFile file: 'active-names.txt', text: activeNames.join(',')
+                    writeFile file: 'active-types.txt', text: activeTypes.join(',')
+                    writeFile file: 'active-sonarkeys.txt', text: activeSonarKeys.join(',')
+                    writeFile file: 'has-services.txt', text: activeNames.isEmpty() ? "false" : "true"
 
-                    env.ACTIVE_SERVICES = activeNamesStr
-                    env.ACTIVE_SERVICES_TYPES = activeTypesStr
-                    env.ACTIVE_SERVICES_SONARKEYS = activeSonarKeysStr
-                    env.HAS_SERVICES = (activeNamesStr.isEmpty() ? "false" : "true")
-
-                    echo "HAS_SERVICES = ${env.HAS_SERVICES}"
-                    echo "ACTIVE_SERVICES = ${env.ACTIVE_SERVICES}"
-                    echo "ACTIVE_SERVICES_TYPES = ${env.ACTIVE_SERVICES_TYPES}"
+                    echo "Active services: ${activeNames}"
                 }
             }
         }
 
         stage('Build, Test & Sonar Analysis') {
-            when { expression { env.HAS_SERVICES == 'true' } }
+            when { expression { readFile('has-services.txt').trim() == 'true' } }
             steps {
                 script {
-                    def activeNames = env.ACTIVE_SERVICES.split(',')
-                    def activeTypes = env.ACTIVE_SERVICES_TYPES.split(',')
-                    def activeSonarKeys = env.ACTIVE_SERVICES_SONARKEYS.split(',')
+                    def activeNames = readFile('active-names.txt').trim().split(',')
+                    def activeTypes = readFile('active-types.txt').trim().split(',')
+                    def activeSonarKeys = readFile('active-sonarkeys.txt').trim().split(',')
                     def builtServices = []
                     def parallelStages = [:]
 
@@ -125,19 +111,19 @@ pipeline {
                         }
                     }
                     parallel parallelStages
-                    env.BUILT_SERVICES = builtServices.join(',')
-                    echo "Built services: ${env.BUILT_SERVICES}"
+                    writeFile file: 'built-services.txt', text: builtServices.join(',')
+                    echo "Built services: ${builtServices}"
                 }
             }
         }
 
         stage('Wait for SonarQube Quality Gate') {
-            when { expression { env.HAS_SERVICES == 'true' } }
+            when { expression { readFile('has-services.txt').trim() == 'true' } }
             steps {
                 script {
-                    def builtServices = env.BUILT_SERVICES.split(',')
-                    def activeNames = env.ACTIVE_SERVICES.split(',')
-                    def activeTypes = env.ACTIVE_SERVICES_TYPES.split(',')
+                    def builtServices = readFile('built-services.txt').trim().split(',')
+                    def activeNames = readFile('active-names.txt').trim().split(',')
+                    def activeTypes = readFile('active-types.txt').trim().split(',')
                     builtServices.each { serviceName ->
                         def idx = activeNames.indexOf(serviceName)
                         if (idx >= 0 && activeTypes[idx] == 'backend') {
@@ -151,11 +137,11 @@ pipeline {
         }
 
         stage('Security Scan (Trivy)') {
-            when { expression { env.HAS_SERVICES == 'true' } }
+            when { expression { readFile('has-services.txt').trim() == 'true' } }
             steps {
                 script {
                     docker.image('aquasec/trivy:latest').inside {
-                        def builtServices = env.BUILT_SERVICES.split(',')
+                        def builtServices = readFile('built-services.txt').trim().split(',')
                         builtServices.each { serviceName ->
                             sh "trivy image --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}"
                         }
@@ -168,12 +154,12 @@ pipeline {
             when {
                 allOf {
                     branch 'develop'
-                    expression { env.HAS_SERVICES == 'true' }
+                    expression { readFile('has-services.txt').trim() == 'true' }
                 }
             }
             steps {
                 script {
-                    def builtServices = env.BUILT_SERVICES.split(',')
+                    def builtServices = readFile('built-services.txt').trim().split(',')
                     builtServices.each { serviceName ->
                         sh """
                             cd k8s/overlays/dev
@@ -195,7 +181,7 @@ pipeline {
             when {
                 allOf {
                     branch 'develop'
-                    expression { env.HAS_SERVICES == 'true' }
+                    expression { readFile('has-services.txt').trim() == 'true' }
                 }
             }
             steps {
@@ -216,4 +202,4 @@ pipeline {
             echo "Build failed"
         }
     }
-}
+} 
