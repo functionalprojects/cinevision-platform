@@ -8,6 +8,6 @@ class ApiGatewayApplicationTests {
 
     @Test
     void contextLoads() {
-        // Basic test to ensure Spring  context loads  successfully
+        // Basic test to ensure Spring context loads  successfully
     }
 }
