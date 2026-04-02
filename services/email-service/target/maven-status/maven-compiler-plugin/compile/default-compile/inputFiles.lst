@@ -1,0 +1,6 @@
+C:\Users\wadgu\OneDrive\Desktop\Functional\moviestreaming\email-service\src\main\java\com\kaankaplan\emailService\business\abstract\EmailService.java
+C:\Users\wadgu\OneDrive\Desktop\Functional\moviestreaming\email-service\src\main\java\com\kaankaplan\emailService\business\concretes\EmailServiceImpl.java
+C:\Users\wadgu\OneDrive\Desktop\Functional\moviestreaming\email-service\src\main\java\com\kaankaplan\emailService\config\FreeMarkerEmailTemplateConfig.java
+C:\Users\wadgu\OneDrive\Desktop\Functional\moviestreaming\email-service\src\main\java\com\kaankaplan\emailService\dto\EmailMessageKafkaDto.java
+C:\Users\wadgu\OneDrive\Desktop\Functional\moviestreaming\email-service\src\main\java\com\kaankaplan\emailService\EmailServiceApplication.java
+C:\Users\wadgu\OneDrive\Desktop\Functional\moviestreaming\email-service\src\main\java\com\kaankaplan\emailService\kafka\KafkaConsumer.java

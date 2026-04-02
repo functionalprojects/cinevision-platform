@@ -1,0 +1,78 @@
+spring:
+  application:
+    name: emailService
+
+  # Mail properties
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: python3.testmail@gmail.com   # CHANGE with your email
+    password: your_password                 # CHANGE with your password
+    protocol: smtp
+    test-connection: false
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+    default-encoding: UTF-8
+
+  # Kafka consumer
+  kafka:
+    consumer:
+      bootstrap-servers: localhost:9092
+      group-id: email
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        spring.json.type.mapping: event:com.kaankaplan.emailService.dto.EmailMessageKafkaDto
+    topic:
+      name: email_topics
+
+  # Freemarker
+  freemarker:
+    template-loader-path: classpath:/templates/
+    suffix: .ftlh
+
+  # Zipkin
+  zipkin:
+    base-url: http://localhost:9411
+
+  # Sleuth is replaced by Micrometer; enable sampling
+  sleuth:
+    sampler:
+      probability: 1.0
+
+# Eureka
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka:password@localhost:8761/eureka
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+
+# Server port (random)
+server:
+  port: 0
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.kaankaplan: DEBUG

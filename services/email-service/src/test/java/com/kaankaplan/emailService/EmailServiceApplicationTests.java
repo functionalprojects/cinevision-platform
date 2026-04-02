@@ -1,13 +1,13 @@
-package com.kaankaplan.apigateway;
+package com.kaankaplan.emailService;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest
-class ApiGatewayApplicationTests {
+class EmailServiceApplicationTests {
 
     @Test
     void contextLoads() {
-        // Basic test to ensure Spring context loads successfully today
+        // Basic test to verify  Spring context loads
     }
 }
