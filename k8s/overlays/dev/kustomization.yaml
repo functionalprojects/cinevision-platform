@@ -18,4 +18,4 @@ resources:
 images:
 - name: api-gateway
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/api-gateway
-  newTag: afcc745
+  newTag: c8e9104
