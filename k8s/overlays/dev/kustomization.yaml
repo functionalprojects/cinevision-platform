@@ -18,10 +18,10 @@ resources:
 images:
 - name: api-gateway
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/api-gateway
-  newTag: c2cb2e7
+  newTag: 5489f8b
 - name: email-service
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/email-service
-  newTag: c2cb2e7
+  newTag: 5489f8b
 - name: eureka-server
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/eureka-server
-  newTag: c2cb2e7
+  newTag: 5489f8b
