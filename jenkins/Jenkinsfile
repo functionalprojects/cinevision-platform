@@ -1,14 +1,10 @@
 pipeline {
     agent any
-    //     tools {
-    //     jdk 'jdk21'
-    // }
 
     environment {
-
         JAVA_HOME = '/usr/lib/jvm/java-21-openjdk-amd64'
         PATH = "${JAVA_HOME}/bin:${env.PATH}"
-        DOCKER_REGISTRY = "590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision"
+        DOCKER_REGISTRY = "590396427103.dkr.ecr.us-east-1.amazonaws.com"
         AWS_DEFAULT_REGION = "us-east-1"
         GIT_COMMIT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
         SONAR_PROJECT_API_GATEWAY = "cinevision_api-gateway"
@@ -69,7 +65,6 @@ pipeline {
                         }
                     }
 
-                    // Write the lists to files
                     writeFile file: 'active-names.txt', text: activeNames.join(',')
                     writeFile file: 'active-types.txt', text: activeTypes.join(',')
                     writeFile file: 'active-sonarkeys.txt', text: activeSonarKeys.join(',')
@@ -110,13 +105,18 @@ pipeline {
                                             sh "mvn sonar:sonar -Dsonar.projectKey=${sonarKey} -Dsonar.organization=functionalprojects"
                                         }
                                         sh 'mvn package'
-                                        sh "docker build -t ${DOCKER_REGISTRY}/${svc}:${GIT_COMMIT} ."
-                                        sh "docker push ${DOCKER_REGISTRY}/${svc}:${GIT_COMMIT}"
+                                        sh "docker build -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
+                                        sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}"
+                                        // Also push as 'latest' for convenience
+                                        sh "docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
+                                        sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
                                     } else if (type == 'frontend') {
                                         sh 'npm install'
                                         sh 'npm run build'
-                                        sh "docker build -t ${DOCKER_REGISTRY}/${svc}:${GIT_COMMIT} ."
-                                        sh "docker push ${DOCKER_REGISTRY}/${svc}:${GIT_COMMIT}"
+                                        sh "docker build -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
+                                        sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}"
+                                        sh "docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
+                                        sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
                                     }
                                     builtServices << svc
                                 }
@@ -159,7 +159,7 @@ pipeline {
                             docker run --rm \
                                 -v /var/run/docker.sock:/var/run/docker.sock \
                                 aquasec/trivy:0.46.0 \
-                                image --scanners vuln --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/${serviceName}:${GIT_COMMIT}
+                                image --scanners vuln --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/cinevision/${serviceName}:${GIT_COMMIT}
                         """
                     }
                 }
@@ -209,7 +209,6 @@ pipeline {
             }
             steps {
                 echo "ArgoCD will automatically sync the changes"
-                // Optionally, you could call argocd CLI here
             }
         }
     }
@@ -225,4 +224,4 @@ pipeline {
             echo "Build failed"
         }
     }
-} 
+}
