@@ -88,7 +88,7 @@ pipeline {
                 script {
                     def activeNames = readFile('active-names.txt').trim().split(',')
                     def activeTypes = readFile('active-types.txt').trim().split(',')
-                    def activeSonarKeys = readFile('active-sonarkeys.txt').trim().split(',')
+                    def activeSonarKeys = readFile('active-sonarkeys.txt').trim().split(',', -1)
                     def builtServices = []
                     def parallelStages = [:]
 
