@@ -1,3 +1,5 @@
+
+
 provider "aws" {
   region = "us-east-1"
 }
@@ -5,10 +7,11 @@ provider "aws" {
 module "vpc" {
   source = "../../modules/vpc"
   environment = "staging"
-  vpc_cidr = "10.0.0.0/16"
-  public_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
-  private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24", "10.0.12.0/24"]
-  azs = ["us-east-1a", "us-east-1b", "us-east-1c"]
+  vpc_cidr = var.vpc_cidr
+  public_subnet_cidrs = var.public_subnet_cidrs
+  private_subnet_cidrs = var.private_subnet_cidrs
+  azs = var.azs
+  enable_nat_gateway = true   # Required for private subnets to reach internet
   common_tags = var.common_tags
 }
 
@@ -51,9 +54,9 @@ module "redis" {
 module "msk" {
   source = "../../modules/msk"
   environment = "staging"
-  subnet_ids = module.vpc.private_subnet_ids
-  vpc_id = module.vpc.vpc_id 
-  number_of_broker_nodes = 2
+  subnet_ids = module.vpc.private_subnet_ids   # All 3 private subnets (one per AZ)
+  vpc_id = module.vpc.vpc_id
+  number_of_broker_nodes = 3   # Must be multiple of number of AZs (3)
   broker_instance_type = var.msk_broker_instance_type
   common_tags = var.common_tags
 }

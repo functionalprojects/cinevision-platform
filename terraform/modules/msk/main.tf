@@ -1,23 +1,18 @@
-# Security group for MSK
 resource "aws_security_group" "msk" {
-  name        = "cinevision-msk-${var.environment}"
-  description = "Security group for MSK cluster"
-  vpc_id      = var.vpc_id
-
+  name   = "cinevision-msk-${var.environment}"
+  vpc_id = var.vpc_id
   ingress {
     from_port = 9092
     to_port   = 9092
     protocol  = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]   # In production, restrict to EKS VPC CIDR
+    cidr_blocks = ["0.0.0.0/0"]
   }
-
   egress {
     from_port = 0
     to_port   = 0
     protocol  = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
   tags = merge(var.common_tags, {
     Name = "cinevision-msk-${var.environment}"
   })

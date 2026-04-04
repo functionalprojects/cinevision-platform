@@ -1,0 +1,24 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: cinevision-ingress
+  namespace: cinevision
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - cinevision-gateway
+  http:
+  - match:
+    - uri:
+        prefix: "/api/"
+    route:
+    - destination:
+        host: api-gateway.cinevision.svc.cluster.local
+        port:
+          number: 8080
+  - route:
+    - destination:
+        host: frontend.cinevision.svc.cluster.local
+        port:
+          number: 80

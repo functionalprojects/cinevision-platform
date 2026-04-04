@@ -11,7 +11,6 @@ variable "instance_class" {
 variable "allocated_storage" {
   description = "Allocated storage in GB"
   type        = number
-  default     = 20
 }
 
 variable "multi_az" {
@@ -36,7 +35,7 @@ variable "db_password" {
 }
 
 variable "vpc_id" {
-  description = "VPC ID for security group"
+  description = "VPC ID"
   type        = string
 }
 
@@ -52,9 +51,9 @@ variable "backup_retention_period" {
 }
 
 variable "skip_final_snapshot" {
-  description = "Skip final snapshot on destroy (for dev)"
+  description = "Skip final snapshot on destroy"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "common_tags" {

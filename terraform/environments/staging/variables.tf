@@ -1,6 +1,25 @@
+# Common tags
 variable "common_tags" {
-  description = "Common tags to apply to all resources"
+  description = "Common tags applied to all resources"
   type        = map(string)
+}
+
+# VPC
+variable "vpc_cidr" {
+  description = "CIDR block for VPC"
+  type        = string
+}
+variable "public_subnet_cidrs" {
+  description = "CIDR blocks for public subnets"
+  type        = list(string)
+}
+variable "private_subnet_cidrs" {
+  description = "CIDR blocks for private subnets"
+  type        = list(string)
+}
+variable "azs" {
+  description = "Availability zones"
+  type        = list(string)
 }
 
 # EKS

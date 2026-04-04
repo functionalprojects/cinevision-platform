@@ -4,12 +4,12 @@ variable "environment" {
 }
 
 variable "subnet_ids" {
-  description = "List of subnet IDs for brokers"
+  description = "List of subnet IDs (must be same length as number_of_broker_nodes for 1:1 mapping, but MSK handles distribution)"
   type        = list(string)
 }
 
 variable "vpc_id" {
-  description = "VPC ID where the MSK cluster will be placed"
+  description = "VPC ID"
   type        = string
 }
 
@@ -20,9 +20,9 @@ variable "kafka_version" {
 }
 
 variable "number_of_broker_nodes" {
-  description = "Number of broker nodes"
+  description = "Number of broker nodes. Must be a multiple of the number of AZs used (here 3 AZs, so set to 3 or 6)"
   type        = number
-  default     = 1
+  default     = 3
 }
 
 variable "broker_instance_type" {
@@ -38,6 +38,7 @@ variable "ebs_volume_size" {
 }
 
 variable "common_tags" {
-  description = "Common tags to apply to all resources"
+  description = "Common tags"
   type        = map(string)
+  default     = {}
 }

@@ -13,10 +13,14 @@ resources:
   - services/email-service-svc.yaml
   - deployments/eureka-server-deployment.yaml
   - services/eureka-server-svc.yaml
-  - deployments/frontend-deployment.yaml
+  - deployments/frontend-deployment.yaml 
   - services/frontend-svc.yaml
   - monitoring/api-gateway-servicemonitor.yaml
   - monitoring/user-service-servicemonitor.yaml
   - monitoring/movie-service-servicemonitor.yaml
   - monitoring/email-service-servicemonitor.yaml
   - monitoring/eureka-server-servicemonitor.yaml
+  - istio/virtualservice-api-gateway.yaml
+  - istio/destinationrule-all.yaml
+  - istio/gateway.yaml
+  - istio/virtualservice-ingress.yaml

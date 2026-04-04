@@ -9,22 +9,22 @@ variable "private_subnet_ids" {
 }
 
 variable "desired_size" {
-  description = "Desired number of nodes"
+  description = "Desired number of worker nodes"
   type        = number
 }
 
 variable "max_size" {
-  description = "Maximum number of nodes"
+  description = "Maximum number of worker nodes"
   type        = number
 }
 
 variable "min_size" {
-  description = "Minimum number of nodes"
+  description = "Minimum number of worker nodes"
   type        = number
 }
 
 variable "instance_types" {
-  description = "EC2 instance types for the node group"
+  description = "EC2 instance types for worker nodes"
   type        = list(string)
 }
 
@@ -35,13 +35,7 @@ variable "cluster_version" {
 }
 
 variable "common_tags" {
-  description = "Common tags to apply to all resources"
+  description = "Common tags"
   type        = map(string)
   default     = {}
 }
-
-variable "node_group_subnet_ids" {
-  description = "Subnet IDs for the node group (defaults to private_subnet_ids)"
-  type        = list(string)
-  default     = null
-} 
