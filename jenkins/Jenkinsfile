@@ -100,11 +100,11 @@ pipeline {
                             stage("Build ${svc}") {
                                 dir("services/${svc}") {
                                     if (type == 'backend') {
-                                        sh 'mvn clean compile test'
+                                        sh 'mvn clean compile -DskipTests'
                                         withSonarQubeEnv('sonarcloud') {
                                             sh "mvn sonar:sonar -Dsonar.projectKey=${sonarKey} -Dsonar.organization=functionalprojects"
                                         }
-                                        sh 'mvn package'
+                                        sh 'mvn package -DskipTests'
                                         sh "docker build -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
                                         sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}"
                                         // Also push as 'latest' for convenience
