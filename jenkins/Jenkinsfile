@@ -107,7 +107,6 @@ pipeline {
                                         sh 'mvn package -DskipTests'
                                         sh "docker build -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
                                         sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}"
-                                        // Also push as 'latest' for convenience
                                         sh "docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
                                         sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
                                     } else if (type == 'frontend') {
@@ -167,7 +166,8 @@ pipeline {
             }
         }
 
-        stage('Update Kustomize') {
+        // ========== DEV ENVIRONMENT (develop branch) ==========
+        stage('Update Kustomize (Dev)') {
             when {
                 allOf {
                     branch 'develop'
@@ -193,7 +193,7 @@ pipeline {
                             git config user.email "jenkins@cinevision.com"
                             git config user.name "Jenkins"
                             git add k8s/overlays/dev/
-                            git commit -m "Update images for commit ${GIT_COMMIT}" || echo "No changes to commit"
+                            git commit -m "Update dev images for commit ${GIT_COMMIT}" || echo "No changes to commit"
                             git push https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/functionalprojects/cinevision-platform.git HEAD:develop
                         """
                     }
@@ -201,15 +201,122 @@ pipeline {
             }
         }
 
-        stage('ArgoCD Sync') {
-            when {
-                allOf {
-                    branch 'develop'
-                    expression { readFile('has-services.txt').trim() == 'true' }
+        stage('Deploy to Dev') {
+            when { branch 'develop' }
+            steps {
+                echo "ArgoCD will automatically sync dev changes"
+            }
+        }
+
+        // ========== STAGING ENVIRONMENT (release/* branches) ==========
+        stage('Prepare Staging Deployment') {
+            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            steps {
+                script {
+                    def builtServices = readFile('built-services.txt').trim().split(',')
+                    builtServices.each { serviceName ->
+                        sh """
+                            cd k8s/overlays/staging
+                            kustomize edit set image ${serviceName}=${DOCKER_REGISTRY}/cinevision/${serviceName}:${GIT_COMMIT}
+                        """
+                    }
+                    withCredentials([[
+                        $class: 'UsernamePasswordMultiBinding',
+                        credentialsId: 'github-token',
+                        usernameVariable: 'GITHUB_USER',
+                        passwordVariable: 'GITHUB_TOKEN'
+                    ]]) {
+                        sh """
+                            git config user.email "jenkins@cinevision.com"
+                            git config user.name "Jenkins"
+                            git add k8s/overlays/staging/
+                            git commit -m "Update staging images for commit ${GIT_COMMIT}" || echo "No changes to commit"
+                            git push https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/functionalprojects/cinevision-platform.git HEAD:${BRANCH_NAME}
+                        """
+                    }
                 }
             }
+        }
+
+        stage('Manual Approval for Staging') {
+            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            input {
+                message "Deploy to staging environment?"
+                ok "Deploy"
+            }
             steps {
-                echo "ArgoCD will automatically sync the changes"
+                script {
+                    // Ensure ArgoCD CLI is available (install if missing)
+                    sh 'command -v argocd || curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 && chmod +x /usr/local/bin/argocd'
+                    // Wait for ArgoCD to be ready (optional)
+                    sh "argocd app sync cinevision-staging --grpc-web"
+                }
+            }
+        }
+
+        stage('Integration Tests') {
+            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            steps {
+                script {
+                    // Get API Gateway endpoint from staging cluster
+                    def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
+                    if (!gatewayUrl) {
+                        gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
+                    }
+                    echo "Using API Gateway endpoint: ${gatewayUrl}"
+                    dir('tests/integration') {
+                        if (fileExists('package.json')) {
+                            sh 'npm install'
+                            sh "npm test -- --baseUrl=${gatewayUrl}"
+                        } else {
+                            echo "No integration tests found. Skipping."
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Performance Test') {
+            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            steps {
+                script {
+                    def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
+                    if (!gatewayUrl) {
+                        gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
+                    }
+                    echo "Using API Gateway endpoint for performance tests: ${gatewayUrl}"
+                    if (fileExists('tests/performance/ticket-purchase-test.js')) {
+                        sh """
+                            docker run --rm -v $(pwd)/tests/performance:/scripts loadimpact/k6:latest run /scripts/ticket-purchase-test.js --env BASE_URL=${gatewayUrl}
+                        """
+                    } else {
+                        echo "Performance test script not found. Skipping."
+                    }
+                }
+            }
+        }
+
+        stage('Security Scan (OWASP ZAP)') {
+            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            steps {
+                script {
+                    def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
+                    if (!gatewayUrl) {
+                        gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
+                    }
+                    echo "Running OWASP ZAP baseline scan against ${gatewayUrl}"
+                    sh """
+                        docker run --rm -v $(pwd)/zap-reports:/zap/wrk:rw \
+                            owasp/zap2docker-stable zap-baseline.py \
+                            -t ${gatewayUrl} \
+                            -r zap_report.html \
+                            -w zap_report.md \
+                            -J zap_report.json \
+                            || echo "ZAP scan completed with warnings"
+                    """
+                    // Archive the report
+                    archiveArtifacts artifacts: 'zap-reports/**', fingerprint: true
+                }
             }
         }
     }
