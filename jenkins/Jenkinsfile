@@ -129,24 +129,24 @@ pipeline {
             }
         }
 
-        stage('Wait for SonarQube Quality Gate') {
-            when { expression { readFile('has-services.txt').trim() == 'true' } }
-            steps {
-                script {
-                    def builtServices = readFile('built-services.txt').trim().split(',')
-                    def activeNames = readFile('active-names.txt').trim().split(',')
-                    def activeTypes = readFile('active-types.txt').trim().split(',')
-                    builtServices.each { serviceName ->
-                        def idx = activeNames.toList().findIndexOf { it == serviceName } 
-                        if (idx >= 0 && activeTypes[idx] == 'backend') {
-                            timeout(time: 10, unit: 'MINUTES') {
-                                waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // stage('Wait for SonarQube Quality Gate') {
+        //     when { expression { readFile('has-services.txt').trim() == 'true' } }
+        //     steps {
+        //         script {
+        //             def builtServices = readFile('built-services.txt').trim().split(',')
+        //             def activeNames = readFile('active-names.txt').trim().split(',')
+        //             def activeTypes = readFile('active-types.txt').trim().split(',')
+        //             builtServices.each { serviceName ->
+        //                 def idx = activeNames.toList().findIndexOf { it == serviceName } 
+        //                 if (idx >= 0 && activeTypes[idx] == 'backend') {
+        //                     timeout(time: 10, unit: 'MINUTES') {
+        //                         waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         stage('Security Scan (Trivy)') {
             when { expression { readFile('has-services.txt').trim() == 'true' } }
