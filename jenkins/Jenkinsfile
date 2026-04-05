@@ -40,6 +40,7 @@ pipeline {
         stage('Initialize') {
             steps {
                 script {
+                    // Define all possible services with their type and build file
                     def possibleServices = [
                         'api-gateway':   [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_API_GATEWAY ],
                         'user-service':  [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_USER_SERVICE ],
@@ -49,28 +50,60 @@ pipeline {
                         'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
                     ]
 
-                    def activeNames = []
-                    def activeTypes = []
-                    def activeSonarKeys = []
-
+                    // Determine which services are active (build file exists)
+                    def activeServices = [:]
                     possibleServices.each { serviceName, config ->
                         def servicePath = "services/${serviceName}"
                         if (fileExists("${servicePath}/${config.buildFile}")) {
-                            activeNames << serviceName
-                            activeTypes << config.type
-                            activeSonarKeys << (config.sonarKey ?: "")
-                            echo "Service ${serviceName} is active and will be built."
+                            activeServices[serviceName] = config
+                            echo "Service ${serviceName} is active."
                         } else {
                             echo "Service ${serviceName} is NOT active (missing ${config.buildFile}). Skipping."
                         }
                     }
 
-                    writeFile file: 'active-names.txt', text: activeNames.join(',')
-                    writeFile file: 'active-types.txt', text: activeTypes.join(',')
-                    writeFile file: 'active-sonarkeys.txt', text: activeSonarKeys.join(',')
-                    writeFile file: 'has-services.txt', text: activeNames.isEmpty() ? "false" : "true"
+                    // Detect changed services by comparing current commit with previous build commit
+                    def changedServices = [:]
+                    def prevCommit = env.GIT_PREVIOUS_COMMIT ?: ''
+                    def currCommit = env.GIT_COMMIT
 
-                    echo "Active services: ${activeNames}"
+                    if (prevCommit == '') {
+                        // First build – assume all active services have changed
+                        echo "No previous commit found. Assuming all active services have changed."
+                        changedServices = activeServices
+                    } else {
+                        echo "Comparing changes between ${prevCommit} and ${currCommit}"
+                        // Get list of changed files
+                        def changedFiles = sh(script: "git diff --name-only ${prevCommit} ${currCommit}", returnStdout: true).trim().split('\n')
+                        // For each changed file, check which service directory it belongs to
+                        def affectedServices = [] as Set
+                        changedFiles.each { file ->
+                            if (file.startsWith('services/')) {
+                                def parts = file.split('/')
+                                if (parts.size() >= 2) {
+                                    def svcName = parts[1]
+                                    if (activeServices.containsKey(svcName)) {
+                                        affectedServices.add(svcName)
+                                    }
+                                }
+                            }
+                            // Optionally handle changes in shared directories (e.g., 'common', 'libs')
+                            // For simplicity we only track per-service directories
+                        }
+                        // Build changedServices map from activeServices that are affected
+                        affectedServices.each { svcName ->
+                            changedServices[svcName] = activeServices[svcName]
+                            echo "Service ${svcName} has changed and will be rebuilt."
+                        }
+                        // Also include services that are new (no previous commit comparison can't detect new service)
+                        // The above diff will include the new service's files if they were added, so it's covered.
+                    }
+
+                    // Write the list of changed services to a file for later stages
+                    def changedNames = changedServices.keySet() as List
+                    writeFile file: 'changed-services.txt', text: changedNames.join(',')
+                    writeFile file: 'has-changed-services.txt', text: changedNames.isEmpty() ? "false" : "true"
+                    echo "Services to build: ${changedNames}"
                 }
             }
         }
@@ -83,33 +116,43 @@ pipeline {
         }
 
         stage('Build, Test & Sonar Analysis') {
-            when { expression { readFile('has-services.txt').trim() == 'true' } }
+            when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
                 script {
-                    def activeNames = readFile('active-names.txt').trim().split(',')
-                    def activeTypes = readFile('active-types.txt').trim().split(',')
-                    def activeSonarKeys = readFile('active-sonarkeys.txt').trim().split(',', -1)
-                    def builtServices = []
+                    def changedNames = readFile('changed-services.txt').trim().split(',')
+                    // Reload service configurations (we need the full config map)
+                    def possibleServices = [
+                        'api-gateway':   [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_API_GATEWAY ],
+                        'user-service':  [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_USER_SERVICE ],
+                        'movie-service': [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_MOVIE_SERVICE ],
+                        'email-service': [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_EMAIL_SERVICE ],
+                        'eureka-server': [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_EUREKA ],
+                        'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
+                    ]
                     def parallelStages = [:]
+                    def builtServices = []
 
-                    for (int i = 0; i < activeNames.size(); i++) {
-                        def svc = activeNames[i]
-                        def type = activeTypes[i]
-                        def sonarKey = activeSonarKeys[i]
+                    for (int i = 0; i < changedNames.size(); i++) {
+                        def svc = changedNames[i]
+                        def config = possibleServices[svc]
+                        if (config == null) continue
+
                         parallelStages[svc] = {
                             stage("Build ${svc}") {
                                 dir("services/${svc}") {
-                                    if (type == 'backend') {
+                                    if (config.type == 'backend') {
                                         sh 'mvn clean compile -DskipTests'
-                                        withSonarQubeEnv('sonarcloud') {
-                                            sh "mvn sonar:sonar -Dsonar.projectKey=${sonarKey} -Dsonar.organization=functionalprojects"
+                                        if (config.sonarKey) {
+                                            withSonarQubeEnv('sonarcloud') {
+                                                sh "mvn sonar:sonar -Dsonar.projectKey=${config.sonarKey} -Dsonar.organization=functionalprojects"
+                                            }
                                         }
                                         sh 'mvn package -DskipTests'
                                         sh "docker build -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
                                         sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}"
                                         sh "docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
                                         sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
-                                    } else if (type == 'frontend') {
+                                    } else if (config.type == 'frontend') {
                                         sh 'npm install'
                                         sh 'npm run build'
                                         sh "docker build -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
@@ -129,27 +172,10 @@ pipeline {
             }
         }
 
-        // stage('Wait for SonarQube Quality Gate') {
-        //     when { expression { readFile('has-services.txt').trim() == 'true' } }
-        //     steps {
-        //         script {
-        //             def builtServices = readFile('built-services.txt').trim().split(',')
-        //             def activeNames = readFile('active-names.txt').trim().split(',')
-        //             def activeTypes = readFile('active-types.txt').trim().split(',')
-        //             builtServices.each { serviceName ->
-        //                 def idx = activeNames.toList().findIndexOf { it == serviceName } 
-        //                 if (idx >= 0 && activeTypes[idx] == 'backend') {
-        //                     timeout(time: 10, unit: 'MINUTES') {
-        //                         waitForQualityGate abortPipeline: true, credentialsId: 'sonarcloud-token'
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
+        // Optional: Wait for SonarQube Quality Gate (commented out originally, can be uncommented and adapted)
 
         stage('Security Scan (Trivy)') {
-            when { expression { readFile('has-services.txt').trim() == 'true' } }
+            when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
                 script {
                     def builtServices = readFile('built-services.txt').trim().split(',')
@@ -171,7 +197,7 @@ pipeline {
             when {
                 allOf {
                     branch 'develop'
-                    expression { readFile('has-services.txt').trim() == 'true' }
+                    expression { readFile('has-changed-services.txt').trim() == 'true' }
                 }
             }
             steps {
@@ -246,9 +272,7 @@ pipeline {
             }
             steps {
                 script {
-                    // Ensure ArgoCD CLI is available (install if missing)
                     sh 'command -v argocd || curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 && chmod +x /usr/local/bin/argocd'
-                    // Wait for ArgoCD to be ready (optional)
                     sh "argocd app sync cinevision-staging --grpc-web"
                 }
             }
@@ -258,11 +282,8 @@ pipeline {
             when { branch pattern: "release/.*", comparator: "REGEXP" }
             steps {
                 script {
-                    // Get API Gateway endpoint from staging cluster
                     def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
-                    if (!gatewayUrl) {
-                        gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
-                    }
+                    if (!gatewayUrl) gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
                     echo "Using API Gateway endpoint: ${gatewayUrl}"
                     dir('tests/integration') {
                         if (fileExists('package.json')) {
@@ -281,9 +302,7 @@ pipeline {
             steps {
                 script {
                     def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
-                    if (!gatewayUrl) {
-                        gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
-                    }
+                    if (!gatewayUrl) gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
                     echo "Using API Gateway endpoint for performance tests: ${gatewayUrl}"
                     if (fileExists('tests/performance/ticket-purchase-test.js')) {
                         sh """
@@ -301,9 +320,7 @@ pipeline {
             steps {
                 script {
                     def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
-                    if (!gatewayUrl) {
-                        gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
-                    }
+                    if (!gatewayUrl) gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
                     echo "Running OWASP ZAP baseline scan against ${gatewayUrl}"
                     sh """
                         docker run --rm -v \$(pwd)/zap-reports:/zap/wrk:rw \
