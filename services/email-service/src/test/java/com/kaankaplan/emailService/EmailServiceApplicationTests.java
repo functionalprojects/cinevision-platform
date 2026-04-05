@@ -8,6 +8,6 @@ class EmailServiceApplicationTests {
 
     @Test
     void contextLoads() {
-        // Basic test to  verifyb  Spring context loads
+        // Basic test to  verify Spring context loads
     }
 }
