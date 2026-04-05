@@ -8,6 +8,6 @@ class EurekaServerApplicationTests {
 
     @Test
     void contextLoads() {
-        // Basic test to verify  Spring context loads
+        // Basic test to verify Spring context loads
     }
 }
