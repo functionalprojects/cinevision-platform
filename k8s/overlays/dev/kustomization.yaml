@@ -30,4 +30,4 @@ images:
   newTag: 61b1786
 - name: user-service
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/user-service
-  newTag: "9100982"
+  newTag: 84cc443
