@@ -25,6 +25,9 @@ images:
 - name: eureka-server
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/eureka-server
   newTag: 03bec2b
+- name: frontend
+  newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/frontend
+  newTag: 4c0f294
 - name: movie-service
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/movie-service
   newTag: 61b1786
