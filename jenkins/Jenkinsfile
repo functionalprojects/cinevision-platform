@@ -148,14 +148,14 @@ pipeline {
                                             }
                                         }
                                         sh 'mvn package -DskipTests'
-                                        sh "docker build -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
+                                        sh "docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
                                         sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}"
                                         sh "docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
                                         sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
                                     } else if (config.type == 'frontend') {
                                         sh 'npm install'
                                         sh 'npm run build'
-                                        sh "docker build -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
+                                        sh "docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
                                         sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}"
                                         sh "docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
                                         sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
