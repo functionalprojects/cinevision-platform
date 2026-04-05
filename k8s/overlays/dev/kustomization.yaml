@@ -24,4 +24,4 @@ images:
   newTag: 38bff42
 - name: eureka-server
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/eureka-server
-  newTag: 67a551e
+  newTag: 39421ec
