@@ -12,7 +12,7 @@ export let options = {
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 
 export default function () {
-    // Simulate user flow: register, login, buy ticket
+    // Simulate user flow: register, login,   buy ticket
     let registerRes = http.post(`${BASE_URL}/api/user/users/add`, JSON.stringify({
         customerName: `User${__VU}`,
         email: `user${__VU}@example.com`,
