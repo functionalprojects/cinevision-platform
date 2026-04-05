@@ -170,7 +170,7 @@ pipeline {
                                 -v /var/run/docker.sock:/var/run/docker.sock \
                                 -v trivy-cache:/root/.cache/trivy \
                                 aquasec/trivy:0.55.0 \
-                                image --scanners vuln --severity HIGH,CRITICAL ${DOCKER_REGISTRY}/cinevision/${serviceName}:${GIT_COMMIT}
+                                image --scanners vuln --severity HIGH,CRITICAL --skip-java-db-update ${DOCKER_REGISTRY}/cinevision/${serviceName}:${GIT_COMMIT}
                         """
                     }
                 }
