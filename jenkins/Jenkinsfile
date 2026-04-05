@@ -40,7 +40,6 @@ pipeline {
         stage('Initialize') {
             steps {
                 script {
-                    // Define all possible services with their type and build file
                     def possibleServices = [
                         'api-gateway':   [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_API_GATEWAY ],
                         'user-service':  [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_USER_SERVICE ],
@@ -50,7 +49,6 @@ pipeline {
                         'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
                     ]
 
-                    // Determine which services are active (build file exists)
                     def activeServices = [:]
                     possibleServices.each { serviceName, config ->
                         def servicePath = "services/${serviceName}"
@@ -62,20 +60,16 @@ pipeline {
                         }
                     }
 
-                    // Detect changed services by comparing current commit with previous build commit
                     def changedServices = [:]
                     def prevCommit = env.GIT_PREVIOUS_COMMIT ?: ''
                     def currCommit = env.GIT_COMMIT
 
                     if (prevCommit == '') {
-                        // First build – assume all active services have changed
                         echo "No previous commit found. Assuming all active services have changed."
                         changedServices = activeServices
                     } else {
                         echo "Comparing changes between ${prevCommit} and ${currCommit}"
-                        // Get list of changed files
                         def changedFiles = sh(script: "git diff --name-only ${prevCommit} ${currCommit}", returnStdout: true).trim().split('\n')
-                        // For each changed file, check which service directory it belongs to
                         def affectedServices = [] as Set
                         changedFiles.each { file ->
                             if (file.startsWith('services/')) {
@@ -87,19 +81,13 @@ pipeline {
                                     }
                                 }
                             }
-                            // Optionally handle changes in shared directories (e.g., 'common', 'libs')
-                            // For simplicity we only track per-service directories
                         }
-                        // Build changedServices map from activeServices that are affected
                         affectedServices.each { svcName ->
                             changedServices[svcName] = activeServices[svcName]
                             echo "Service ${svcName} has changed and will be rebuilt."
                         }
-                        // Also include services that are new (no previous commit comparison can't detect new service)
-                        // The above diff will include the new service's files if they were added, so it's covered.
                     }
 
-                    // Write the list of changed services to a file for later stages
                     def changedNames = changedServices.keySet() as List
                     writeFile file: 'changed-services.txt', text: changedNames.join(',')
                     writeFile file: 'has-changed-services.txt', text: changedNames.isEmpty() ? "false" : "true"
@@ -120,7 +108,6 @@ pipeline {
             steps {
                 script {
                     def changedNames = readFile('changed-services.txt').trim().split(',')
-                    // Reload service configurations (we need the full config map)
                     def possibleServices = [
                         'api-gateway':   [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_API_GATEWAY ],
                         'user-service':  [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_USER_SERVICE ],
@@ -172,8 +159,6 @@ pipeline {
             }
         }
 
-        // Optional: Wait for SonarQube Quality Gate (commented out originally, can be uncommented and adapted)
-
         stage('Security Scan (Trivy)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -192,7 +177,6 @@ pipeline {
             }
         }
 
-        // ========== DEV ENVIRONMENT (develop branch) ==========
         stage('Update Kustomize (Dev)') {
             when {
                 allOf {
@@ -234,7 +218,6 @@ pipeline {
             }
         }
 
-        // ========== STAGING ENVIRONMENT (release/* branches) ==========
         stage('Prepare Staging Deployment') {
             when { branch pattern: "release/.*", comparator: "REGEXP" }
             steps {
@@ -264,8 +247,12 @@ pipeline {
             }
         }
 
+        // Manual approval stage – only for release branches, never prompts on develop
         stage('Manual Approval for Staging') {
-            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            when {
+                beforeInput true
+                branch pattern: "release/.*", comparator: "REGEXP"
+            }
             input {
                 message "Deploy to staging environment?"
                 ok "Deploy"
