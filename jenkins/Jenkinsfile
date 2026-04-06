@@ -93,7 +93,7 @@ pipeline {
                     def hasChanges = !changedNames.isEmpty()
                     writeFile file: 'has-changed-services.txt', text: hasChanges ? "true" : "false"
                     if (!hasChanges) {
-                        writeFile file: 'built-services.txt', text: ''   // empty file to avoid missing file errors
+                        writeFile file: 'built-services.txt', text: ''
                     }
                     echo "Services to build: ${changedNames}"
                 }
@@ -107,7 +107,10 @@ pipeline {
             }
         }
 
-        stage('Build & Test (Parallel)') {
+        // -------------------------------
+        // SEQUENTIAL Build & Test
+        // -------------------------------
+        stage('Build & Test (Sequential)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
                 script {
@@ -120,7 +123,6 @@ pipeline {
                         'eureka-server': [ type: 'backend', buildFile: 'pom.xml', sonarKey: SONAR_PROJECT_EUREKA ],
                         'frontend':      [ type: 'frontend', buildFile: 'package.json', sonarKey: null ]
                     ]
-                    def parallelStages = [:]
                     def builtServices = []
 
                     for (int i = 0; i < changedNames.size(); i++) {
@@ -128,28 +130,28 @@ pipeline {
                         def config = possibleServices[svc]
                         if (config == null) continue
 
-                        parallelStages[svc] = {
-                            stage("Build & Test ${svc}") {
-                                dir("services/${svc}") {
-                                    if (config.type == 'backend') {
-                                        sh 'mvn clean compile -DskipTests'
-                                        sh 'mvn test'
-                                    } else if (config.type == 'frontend') {
-                                        sh 'npm install'
-                                        sh 'CI=false npm run build'
-                                    }
-                                    builtServices << svc
+                        stage("Build & Test ${svc}") {
+                            dir("services/${svc}") {
+                                if (config.type == 'backend') {
+                                    sh 'mvn clean compile -DskipTests'
+                                    sh 'mvn test'
+                                } else if (config.type == 'frontend') {
+                                    sh 'npm install'
+                                    sh 'CI=false npm run build'
                                 }
+                                builtServices << svc
                             }
                         }
                     }
-                    parallel parallelStages
                     writeFile file: 'built-services.txt', text: builtServices.join(',')
                     echo "Built services: ${builtServices}"
                 }
             }
         }
 
+        // -------------------------------
+        // SEQUENTIAL SonarCloud Analysis
+        // -------------------------------
         stage('SonarCloud Analysis (Sequential)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -171,15 +173,16 @@ pipeline {
                             echo "Skipping SonarCloud for service ${svc} (not a backend service)"
                             continue
                         }
-                        echo "Running SonarCloud analysis for ${svc} (sequential)"
-                        dir("services/${svc}") {
-                            withSonarQubeEnv('sonarcloud') {
-                                sh """
-                                    mvn sonar:sonar \
-                                        -Dsonar.projectKey=${config.sonarKey} \
-                                        -Dsonar.organization=functionalprojects \
-                                        -Dsonar.host.url=https://sonarcloud.io
-                                """
+                        stage("SonarCloud Analysis for ${svc}") {
+                            dir("services/${svc}") {
+                                withSonarQubeEnv('sonarcloud') {
+                                    sh """
+                                        mvn sonar:sonar \
+                                            -Dsonar.projectKey=${config.sonarKey} \
+                                            -Dsonar.organization=functionalprojects \
+                                            -Dsonar.host.url=https://sonarcloud.io
+                                    """
+                                }
                             }
                         }
                     }
@@ -187,6 +190,9 @@ pipeline {
             }
         }
 
+        // -------------------------------
+        // SEQUENTIAL Docker Build & Push
+        // -------------------------------
         stage('Docker Build & Push') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -205,22 +211,25 @@ pipeline {
                         def svc = builtServices[i]
                         def config = possibleServices[svc]
                         if (config == null) continue
-                        dir("services/${svc}") {
-                            if (config.type == 'backend') {
-                                sh """
-                                    mvn package -DskipTests
-                                    docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} .
-                                    docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}
-                                    docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest
-                                    docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest
-                                """
-                            } else if (config.type == 'frontend') {
-                                sh """
-                                    docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} .
-                                    docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}
-                                    docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest
-                                    docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest
-                                """
+
+                        stage("Docker Build & Push for ${svc}") {
+                            dir("services/${svc}") {
+                                if (config.type == 'backend') {
+                                    sh """
+                                        mvn package -DskipTests
+                                        docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} .
+                                        docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}
+                                        docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest
+                                        docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest
+                                    """
+                                } else if (config.type == 'frontend') {
+                                    sh """
+                                        docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} .
+                                        docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}
+                                        docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest
+                                        docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest
+                                    """
+                                }
                             }
                         }
                     }
@@ -228,24 +237,32 @@ pipeline {
             }
         }
 
+        // -------------------------------
+        // SEQUENTIAL Security Scan (Trivy)
+        // -------------------------------
         stage('Security Scan (Trivy)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
                 script {
                     def builtServices = readFile('built-services.txt').trim().split(',')
                     builtServices.each { serviceName ->
-                        sh """
-                            docker run --rm \
-                                -v /var/run/docker.sock:/var/run/docker.sock \
-                                -v trivy-cache:/root/.cache/trivy \
-                                aquasec/trivy:0.55.0 \
-                                image --scanners vuln --severity HIGH,CRITICAL --skip-java-db-update ${DOCKER_REGISTRY}/cinevision/${serviceName}:${GIT_COMMIT}
-                        """
+                        stage("Trivy Scan for ${serviceName}") {
+                            sh """
+                                docker run --rm \
+                                    -v /var/run/docker.sock:/var/run/docker.sock \
+                                    -v trivy-cache:/root/.cache/trivy \
+                                    aquasec/trivy:0.55.0 \
+                                    image --scanners vuln --severity HIGH,CRITICAL --skip-java-db-update ${DOCKER_REGISTRY}/cinevision/${serviceName}:${GIT_COMMIT}
+                            """
+                        }
                     }
                 }
             }
         }
 
+        // -------------------------------
+        // Update Kustomize (Dev) – runs only on develop branch
+        // -------------------------------
         stage('Update Kustomize (Dev)') {
             when {
                 allOf {
@@ -287,6 +304,9 @@ pipeline {
             }
         }
 
+        // -------------------------------
+        // Prepare Staging Deployment – runs only on release branches
+        // -------------------------------
         stage('Prepare Staging Deployment') {
             when {
                 allOf {
@@ -298,7 +318,8 @@ pipeline {
             steps {
                 script {
                     def builtServices = readFile('built-services.txt').trim().split(',')
-                    if (builtServices.isEmpty() || builtServices[0] == '') {
+                    // FIXED: Use .length == 0 instead of .isEmpty()
+                    if (builtServices.length == 0 || builtServices[0] == '') {
                         echo "No services were built. Skipping staging manifest update."
                         return
                     }
