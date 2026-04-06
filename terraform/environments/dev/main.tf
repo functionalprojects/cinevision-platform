@@ -17,7 +17,7 @@ module "eks" {
   environment = "dev"
   private_subnet_ids = module.vpc.private_subnet_ids
   desired_size = var.eks_desired_size
-  node_group_subnet_ids = module.vpc.public_subnet_ids
+  # subnet_ids = module.vpc.private_subnet_ids
   max_size = var.eks_max_size
   min_size = var.eks_min_size
   instance_types = var.eks_instance_types
