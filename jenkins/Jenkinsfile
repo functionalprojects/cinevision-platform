@@ -103,7 +103,10 @@ pipeline {
             }
         }
 
-        stage('Build, Test & Sonar Analysis') {
+        // ============================================================
+        // PARALLEL BUILD & TEST (no Sonar)
+        // ============================================================
+        stage('Build & Test (Parallel)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
                 script {
@@ -125,27 +128,15 @@ pipeline {
                         if (config == null) continue
 
                         parallelStages[svc] = {
-                            stage("Build ${svc}") {
+                            stage("Build & Test ${svc}") {
                                 dir("services/${svc}") {
                                     if (config.type == 'backend') {
+                                        // Compile and test (no Sonar)
                                         sh 'mvn clean compile -DskipTests'
-                                        if (config.sonarKey) {
-                                            withSonarQubeEnv('sonarcloud') {
-                                                sh "mvn sonar:sonar -Dsonar.projectKey=${config.sonarKey} -Dsonar.organization=functionalprojects"
-                                            }
-                                        }
-                                        sh 'mvn package -DskipTests'
-                                        sh "docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
-                                        sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}"
-                                        sh "docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
-                                        sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
+                                        sh 'mvn test'
                                     } else if (config.type == 'frontend') {
                                         sh 'npm install'
                                         sh 'CI=false npm run build'
-                                        sh "docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ."
-                                        sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}"
-                                        sh "docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
-                                        sh "docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest"
                                     }
                                     builtServices << svc
                                 }
@@ -155,6 +146,90 @@ pipeline {
                     parallel parallelStages
                     writeFile file: 'built-services.txt', text: builtServices.join(',')
                     echo "Built services: ${builtServices}"
+                }
+            }
+        }
+
+        // ============================================================
+        // SEQUENTIAL SONARCLOUD ANALYSIS
+        // ============================================================
+        stage('SonarCloud Analysis (Sequential)') {
+            when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
+            steps {
+                script {
+                    def builtServices = readFile('built-services.txt').trim().split(',')
+                    def possibleServices = [
+                        'api-gateway':   [ type: 'backend', sonarKey: SONAR_PROJECT_API_GATEWAY ],
+                        'user-service':  [ type: 'backend', sonarKey: SONAR_PROJECT_USER_SERVICE ],
+                        'movie-service': [ type: 'backend', sonarKey: SONAR_PROJECT_MOVIE_SERVICE ],
+                        'email-service': [ type: 'backend', sonarKey: SONAR_PROJECT_EMAIL_SERVICE ],
+                        'eureka-server': [ type: 'backend', sonarKey: SONAR_PROJECT_EUREKA ],
+                        'frontend':      [ type: 'frontend', sonarKey: null ]
+                    ]
+
+                    for (int i = 0; i < builtServices.size(); i++) {
+                        def svc = builtServices[i]
+                        def config = possibleServices[svc]
+                        if (config == null || config.type != 'backend' || config.sonarKey == null) {
+                            echo "Skipping SonarCloud for service ${svc} (not a backend service)"
+                            continue
+                        }
+                        echo "Running SonarCloud analysis for ${svc} (sequential)"
+                        dir("services/${svc}") {
+                            withSonarQubeEnv('sonarcloud') {
+                                sh """
+                                    mvn sonar:sonar \
+                                        -Dsonar.projectKey=${config.sonarKey} \
+                                        -Dsonar.organization=functionalprojects \
+                                        -Dsonar.host.url=https://sonarcloud.io
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ============================================================
+        // DOCKER BUILD & PUSH (can be parallelized if needed)
+        // ============================================================
+        stage('Docker Build & Push') {
+            when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
+            steps {
+                script {
+                    def builtServices = readFile('built-services.txt').trim().split(',')
+                    def possibleServices = [
+                        'api-gateway':   [ type: 'backend' ],
+                        'user-service':  [ type: 'backend' ],
+                        'movie-service': [ type: 'backend' ],
+                        'email-service': [ type: 'backend' ],
+                        'eureka-server': [ type: 'backend' ],
+                        'frontend':      [ type: 'frontend' ]
+                    ]
+
+                    for (int i = 0; i < builtServices.size(); i++) {
+                        def svc = builtServices[i]
+                        def config = possibleServices[svc]
+                        if (config == null) continue
+                        dir("services/${svc}") {
+                            if (config.type == 'backend') {
+                                sh """
+                                    mvn package -DskipTests
+                                    docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} .
+                                    docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}
+                                    docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest
+                                    docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest
+                                """
+                            } else if (config.type == 'frontend') {
+                                sh """
+                                    docker build --no-cache -t ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} .
+                                    docker push ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT}
+                                    docker tag ${DOCKER_REGISTRY}/cinevision/${svc}:${GIT_COMMIT} ${DOCKER_REGISTRY}/cinevision/${svc}:latest
+                                    docker push ${DOCKER_REGISTRY}/cinevision/${svc}:latest
+                                """
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -247,7 +322,6 @@ pipeline {
             }
         }
 
-        // Manual approval stage – only for release branches, never prompts on develop
         stage('Manual Approval for Staging') {
             when {
                 beforeInput true
