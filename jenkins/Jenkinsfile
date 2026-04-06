@@ -90,7 +90,11 @@ pipeline {
 
                     def changedNames = changedServices.keySet() as List
                     writeFile file: 'changed-services.txt', text: changedNames.join(',')
-                    writeFile file: 'has-changed-services.txt', text: changedNames.isEmpty() ? "false" : "true"
+                    def hasChanges = !changedNames.isEmpty()
+                    writeFile file: 'has-changed-services.txt', text: hasChanges ? "true" : "false"
+                    if (!hasChanges) {
+                        writeFile file: 'built-services.txt', text: ''   // empty file to avoid missing file errors
+                    }
                     echo "Services to build: ${changedNames}"
                 }
             }
@@ -103,9 +107,6 @@ pipeline {
             }
         }
 
-        // ============================================================
-        // PARALLEL BUILD & TEST (no Sonar)
-        // ============================================================
         stage('Build & Test (Parallel)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -131,7 +132,6 @@ pipeline {
                             stage("Build & Test ${svc}") {
                                 dir("services/${svc}") {
                                     if (config.type == 'backend') {
-                                        // Compile and test (no Sonar)
                                         sh 'mvn clean compile -DskipTests'
                                         sh 'mvn test'
                                     } else if (config.type == 'frontend') {
@@ -150,9 +150,6 @@ pipeline {
             }
         }
 
-        // ============================================================
-        // SEQUENTIAL SONARCLOUD ANALYSIS
-        // ============================================================
         stage('SonarCloud Analysis (Sequential)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -190,9 +187,6 @@ pipeline {
             }
         }
 
-        // ============================================================
-        // DOCKER BUILD & PUSH (can be parallelized if needed)
-        // ============================================================
         stage('Docker Build & Push') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -294,10 +288,20 @@ pipeline {
         }
 
         stage('Prepare Staging Deployment') {
-            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            when {
+                allOf {
+                    branch pattern: "release/.*", comparator: "REGEXP"
+                    expression { readFile('has-changed-services.txt').trim() == 'true' }
+                    expression { fileExists('built-services.txt') }
+                }
+            }
             steps {
                 script {
                     def builtServices = readFile('built-services.txt').trim().split(',')
+                    if (builtServices.isEmpty() || builtServices[0] == '') {
+                        echo "No services were built. Skipping staging manifest update."
+                        return
+                    }
                     builtServices.each { serviceName ->
                         sh """
                             cd k8s/overlays/staging
@@ -325,7 +329,10 @@ pipeline {
         stage('Manual Approval for Staging') {
             when {
                 beforeInput true
-                branch pattern: "release/.*", comparator: "REGEXP"
+                allOf {
+                    branch pattern: "release/.*", comparator: "REGEXP"
+                    expression { readFile('has-changed-services.txt').trim() == 'true' }
+                }
             }
             input {
                 message "Deploy to staging environment?"
@@ -340,7 +347,12 @@ pipeline {
         }
 
         stage('Integration Tests') {
-            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            when {
+                allOf {
+                    branch pattern: "release/.*", comparator: "REGEXP"
+                    expression { readFile('has-changed-services.txt').trim() == 'true' }
+                }
+            }
             steps {
                 script {
                     def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
@@ -359,7 +371,12 @@ pipeline {
         }
 
         stage('Performance Test') {
-            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            when {
+                allOf {
+                    branch pattern: "release/.*", comparator: "REGEXP"
+                    expression { readFile('has-changed-services.txt').trim() == 'true' }
+                }
+            }
             steps {
                 script {
                     def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
@@ -377,7 +394,12 @@ pipeline {
         }
 
         stage('Security Scan (OWASP ZAP)') {
-            when { branch pattern: "release/.*", comparator: "REGEXP" }
+            when {
+                allOf {
+                    branch pattern: "release/.*", comparator: "REGEXP"
+                    expression { readFile('has-changed-services.txt').trim() == 'true' }
+                }
+            }
             steps {
                 script {
                     def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
