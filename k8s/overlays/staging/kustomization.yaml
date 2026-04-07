@@ -1,12 +1,36 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-patchesStrategicMerge:
-# - replicas-patch.yaml
-- image-tags-patch.yaml
-
+replicas:
+- count: 1
+  name: api-gateway
+- count: 1
+  name: user-service
+- count: 1
+  name: movie-service
+- count: 1
+  name: email-service
+- count: 1
+  name: eureka-server
+- count: 1
+  name: frontend
+resources:
+- ../../base
 images:
 - name: api-gateway
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/api-gateway
-  newTag: 660525f
-resources:
-- ../../base
+  newTag: 301eacf
+- name: email-service
+  newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/email-service
+  newTag: 38bff42
+- name: eureka-server
+  newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/eureka-server
+  newTag: 03bec2b
+- name: frontend
+  newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/frontend
+  newTag: 4c0f294
+- name: movie-service
+  newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/movie-service
+  newTag: 61b1786
+- name: user-service
+  newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/user-service
+  newTag: 84cc443
