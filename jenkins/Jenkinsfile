@@ -107,9 +107,6 @@ pipeline {
             }
         }
 
-        // -------------------------------
-        // SEQUENTIAL Build & Test
-        // -------------------------------
         stage('Build & Test (Sequential)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -149,9 +146,6 @@ pipeline {
             }
         }
 
-        // -------------------------------
-        // SEQUENTIAL SonarCloud Analysis
-        // -------------------------------
         stage('SonarCloud Analysis (Sequential)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -190,9 +184,6 @@ pipeline {
             }
         }
 
-        // -------------------------------
-        // SEQUENTIAL Docker Build & Push
-        // -------------------------------
         stage('Docker Build & Push') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -237,9 +228,6 @@ pipeline {
             }
         }
 
-        // -------------------------------
-        // SEQUENTIAL Security Scan (Trivy)
-        // -------------------------------
         stage('Security Scan (Trivy)') {
             when { expression { readFile('has-changed-services.txt').trim() == 'true' } }
             steps {
@@ -260,9 +248,6 @@ pipeline {
             }
         }
 
-        // -------------------------------
-        // Update Kustomize (Dev) – runs only on develop branch
-        // -------------------------------
         stage('Update Kustomize (Dev)') {
             when {
                 allOf {
@@ -304,9 +289,6 @@ pipeline {
             }
         }
 
-        // -------------------------------
-        // Prepare Staging Deployment – runs only on release branches
-        // -------------------------------
         stage('Prepare Staging Deployment') {
             when {
                 allOf {
@@ -318,7 +300,6 @@ pipeline {
             steps {
                 script {
                     def builtServices = readFile('built-services.txt').trim().split(',')
-                    // FIXED: Use .length == 0 instead of .isEmpty()
                     if (builtServices.length == 0 || builtServices[0] == '') {
                         echo "No services were built. Skipping staging manifest update."
                         return
@@ -348,7 +329,7 @@ pipeline {
         }
 
         // -------------------------------
-        // Manual Approval for Staging – FIXED: download argocd to workspace
+        // FIXED: Manual Approval with ArgoCD login
         // -------------------------------
         stage('Manual Approval for Staging') {
             when {
@@ -364,15 +345,29 @@ pipeline {
             }
             steps {
                 script {
-                    // Download ArgoCD to workspace/tools (writable directory)
+                    // Download ArgoCD CLI
                     sh '''
                         mkdir -p tools
                         if [ ! -f tools/argocd ]; then
                             curl -sSL -o tools/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
                             chmod +x tools/argocd
                         fi
-                        ./tools/argocd app sync cinevision-staging --grpc-web
                     '''
+                    withCredentials([
+                        string(credentialsId: 'argocd-server', variable: 'ARGOCD_SERVER'),
+                        string(credentialsId: 'argocd-username', variable: 'ARGOCD_USERNAME'),
+                        string(credentialsId: 'argocd-password', variable: 'ARGOCD_PASSWORD')
+                    ]) {
+                        sh '''
+                            # Login to ArgoCD
+                            ./tools/argocd login $ARGOCD_SERVER \
+                                --username $ARGOCD_USERNAME \
+                                --password $ARGOCD_PASSWORD \
+                                --insecure
+                            # Sync staging application
+                            ./tools/argocd app sync cinevision-staging --grpc-web
+                        '''
+                    }
                 }
             }
         }
