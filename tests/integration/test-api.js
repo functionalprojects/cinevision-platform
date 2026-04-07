@@ -1,8 +1,7 @@
 const axios = require('axios');
 const { expect } = require('chai');
 
-// Use the frontend service URL (accessible from within the cluster)
-const BASE_URL = 'http://frontend.cinevision.svc.cluster.local';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:8080';
 
 describe('CineVision Smoke Tests', () => {
     it('should return frontend homepage', async () => {

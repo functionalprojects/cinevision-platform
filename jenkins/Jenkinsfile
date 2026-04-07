@@ -385,9 +385,16 @@ pipeline {
             }
             steps {
                 script {
-                    def gatewayUrl = sh(script: "kubectl get svc api-gateway -n cinevision -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
-                    if (!gatewayUrl) gatewayUrl = "http://api-gateway.cinevision.svc.cluster.local"
-                    echo "Using API Gateway endpoint: ${gatewayUrl}"
+                    // Get the Istio ingress gateway external address
+                    def gatewayHost = sh(script: "kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo ''", returnStdout: true).trim()
+                    if (!gatewayHost) {
+                        gatewayHost = sh(script: "kubectl get svc istio-ingressgateway -n istio-system -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo ''", returnStdout: true).trim()
+                    }
+                    if (!gatewayHost) {
+                        error "Could not find Istio ingress gateway external address"
+                    }
+                    def gatewayUrl = "http://${gatewayHost}"
+                    echo "Using Gateway endpoint: ${gatewayUrl}"
                     dir('tests/integration') {
                         if (fileExists('package.json')) {
                             sh 'npm install'
