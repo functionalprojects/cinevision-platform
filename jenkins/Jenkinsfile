@@ -329,7 +329,7 @@ pipeline {
         }
 
         // -------------------------------
-        // Manual Approval with ArgoCD auto port‑forward
+        // Final Manual Approval with full AWS credentials and kubeconfig
         // -------------------------------
         stage('Manual Approval for Staging') {
             when {
@@ -351,20 +351,26 @@ pipeline {
                             curl -sSL -o tools/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
                             chmod +x tools/argocd
                         fi
+                        if [ ! -f tools/kubectl ]; then
+                            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                            chmod +x kubectl
+                            mv kubectl tools/
+                        fi
                         export PATH=$PWD/tools:$PATH
                     '''
                     withCredentials([
                         string(credentialsId: 'argocd-username', variable: 'ARGOCD_USERNAME'),
-                        string(credentialsId: 'argocd-password', variable: 'ARGOCD_PASSWORD')
+                        string(credentialsId: 'argocd-password', variable: 'ARGOCD_PASSWORD'),
+                        [$class: 'UsernamePasswordMultiBinding',
+                         credentialsId: 'ecr-cred',
+                         usernameVariable: 'AWS_ACCESS_KEY_ID',
+                         passwordVariable: 'AWS_SECRET_ACCESS_KEY']
                     ]) {
                         sh '''
                             export PATH=$PWD/tools:$PATH
-                            # Configure kubeconfig if not already done (reuse from earlier, but ensure it's set)
-                            if [ ! -f ~/.kube/config ]; then
-                                echo "No kubeconfig found. Please ensure kubectl is configured."
-                                exit 1
-                            fi
-                            # Use ArgoCD with automatic port‑forwarding (no manual port‑forward)
+                            # Configure kubeconfig for the EKS cluster (using the provided AWS credentials)
+                            aws eks update-kubeconfig --region us-east-1 --name cinevision-staging
+                            # Use ArgoCD with automatic port‑forwarding
                             ./tools/argocd login --port-forward --port-forward-namespace argocd \
                                 --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --insecure
                             ./tools/argocd app sync cinevision-staging --port-forward --port-forward-namespace argocd
