@@ -3,7 +3,7 @@ kind: Kustomization
 bases:
   - ../../base
 patchesStrategicMerge:
-- replicas-patch.yaml
+# - replicas-patch.yaml
 - image-tags-patch.yaml
 
 images:
