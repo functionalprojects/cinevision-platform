@@ -329,7 +329,7 @@ pipeline {
         }
 
         // -------------------------------
-        // FIXED: Manual Approval with ArgoCD login using usernamePassword credential
+        // FIXED: Manual Approval with separate string credentials (Option B)
         // -------------------------------
         stage('Manual Approval for Staging') {
             when {
@@ -355,7 +355,8 @@ pipeline {
                     '''
                     withCredentials([
                         string(credentialsId: 'argocd-server', variable: 'ARGOCD_SERVER'),
-                        usernamePassword(credentialsId: 'argocd-username', usernameVariable: 'ARGOCD_USERNAME', passwordVariable: 'ARGOCD_PASSWORD')
+                        string(credentialsId: 'argocd-username', variable: 'ARGOCD_USERNAME'),
+                        string(credentialsId: 'argocd-password', variable: 'ARGOCD_PASSWORD')
                     ]) {
                         sh '''
                             # Login to ArgoCD
