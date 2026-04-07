@@ -329,7 +329,7 @@ pipeline {
         }
 
         // -------------------------------
-        // Manual Approval with port-forward (no external URL)
+        // Manual Approval with kubectl installation and robust port-forward
         // -------------------------------
         stage('Manual Approval for Staging') {
             when {
@@ -345,6 +345,16 @@ pipeline {
             }
             steps {
                 script {
+                    // Install kubectl if missing
+                    sh '''
+                        if ! command -v kubectl >/dev/null 2>&1; then
+                            echo "kubectl not found. Installing..."
+                            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                            chmod +x kubectl
+                            sudo mv kubectl /usr/local/bin/
+                        fi
+                        kubectl version --client
+                    '''
                     // Download ArgoCD CLI
                     sh '''
                         mkdir -p tools
@@ -358,16 +368,22 @@ pipeline {
                         string(credentialsId: 'argocd-password', variable: 'ARGOCD_PASSWORD')
                     ]) {
                         sh '''
-                            # Kill any existing port-forward
+                            # Kill any leftover port-forward
                             pkill -f "kubectl port-forward.*argocd-server" || true
-                            # Forward ArgoCD server to localhost
+                            # Start port-forward in background
                             kubectl port-forward -n argocd svc/argocd-server 8080:443 &
                             PF_PID=$!
-                            # Wait for port-forward to establish
-                            sleep 10
-                            # Login via localhost (no TLS)
+                            # Wait for port to be ready
+                            echo "Waiting for port-forward to become ready..."
+                            for i in $(seq 1 30); do
+                                if nc -z localhost 8080 2>/dev/null; then
+                                    echo "Port 8080 is open."
+                                    break
+                                fi
+                                sleep 1
+                            done
+                            # Login and sync
                             ./tools/argocd login localhost:8080 --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --insecure
-                            # Sync staging application
                             ./tools/argocd app sync cinevision-staging --grpc-web
                             # Clean up
                             kill $PF_PID
