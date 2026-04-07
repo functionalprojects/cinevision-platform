@@ -329,7 +329,7 @@ pipeline {
         }
 
         // -------------------------------
-        // Manual Approval with gRPC web port (8080) and --grpc-web
+        // Manual Approval with ArgoCD auto port‑forward
         // -------------------------------
         stage('Manual Approval for Staging') {
             when {
@@ -347,11 +347,6 @@ pipeline {
                 script {
                     sh '''
                         mkdir -p tools
-                        if [ ! -f tools/kubectl ]; then
-                            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                            chmod +x kubectl
-                            mv kubectl tools/
-                        fi
                         if [ ! -f tools/argocd ]; then
                             curl -sSL -o tools/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
                             chmod +x tools/argocd
@@ -360,37 +355,19 @@ pipeline {
                     '''
                     withCredentials([
                         string(credentialsId: 'argocd-username', variable: 'ARGOCD_USERNAME'),
-                        string(credentialsId: 'argocd-password', variable: 'ARGOCD_PASSWORD'),
-                        [$class: 'UsernamePasswordMultiBinding',
-                         credentialsId: 'ecr-cred',
-                         usernameVariable: 'AWS_ACCESS_KEY_ID',
-                         passwordVariable: 'AWS_SECRET_ACCESS_KEY']
+                        string(credentialsId: 'argocd-password', variable: 'ARGOCD_PASSWORD')
                     ]) {
                         sh '''
                             export PATH=$PWD/tools:$PATH
-                            # Configure kubectl for EKS
-                            aws eks update-kubeconfig --region us-east-1 --name cinevision-staging
-                            # Kill any existing port-forward processes
-                            pkill -f "kubectl port-forward" || true
-                            # Forward the gRPC web port (8080) of the ArgoCD server
-                            PORT=9090
-                            kubectl port-forward -n argocd svc/argocd-server $PORT:8080 > /dev/null 2>&1 &
-                            PF_PID=$!
-                            # Wait for port-forward to be ready (up to 30 seconds)
-                            echo "Waiting for port-forward on $PORT..."
-                            for i in $(seq 1 30); do
-                                if nc -z localhost $PORT 2>/dev/null; then
-                                    echo "Port $PORT is open."
-                                    break
-                                fi
-                                sleep 1
-                            done
-                            # Login to ArgoCD using plaintext and grpc-web
-                            ./tools/argocd login localhost:$PORT --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --plaintext --grpc-web
-                            # Sync staging application
-                            ./tools/argocd app sync cinevision-staging --grpc-web
-                            # Clean up
-                            kill $PF_PID
+                            # Configure kubeconfig if not already done (reuse from earlier, but ensure it's set)
+                            if [ ! -f ~/.kube/config ]; then
+                                echo "No kubeconfig found. Please ensure kubectl is configured."
+                                exit 1
+                            fi
+                            # Use ArgoCD with automatic port‑forwarding (no manual port‑forward)
+                            ./tools/argocd login --port-forward --port-forward-namespace argocd \
+                                --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --insecure
+                            ./tools/argocd app sync cinevision-staging --port-forward --port-forward-namespace argocd
                         '''
                     }
                 }
