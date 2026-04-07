@@ -3,4 +3,7 @@ kind: Kustomization
 patchesStrategicMerge:
 - replicas-patch.yaml
 - image-tags-patch.yaml
-
+images:
+- name: api-gateway
+  newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/api-gateway
+  newTag: a5b7b6d
