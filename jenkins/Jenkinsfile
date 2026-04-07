@@ -347,6 +347,9 @@ pipeline {
             }
         }
 
+        // -------------------------------
+        // Manual Approval for Staging – FIXED: download argocd to workspace
+        // -------------------------------
         stage('Manual Approval for Staging') {
             when {
                 beforeInput true
@@ -361,8 +364,15 @@ pipeline {
             }
             steps {
                 script {
-                    sh 'command -v argocd || curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 && chmod +x /usr/local/bin/argocd'
-                    sh "argocd app sync cinevision-staging --grpc-web"
+                    // Download ArgoCD to workspace/tools (writable directory)
+                    sh '''
+                        mkdir -p tools
+                        if [ ! -f tools/argocd ]; then
+                            curl -sSL -o tools/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+                            chmod +x tools/argocd
+                        fi
+                        ./tools/argocd app sync cinevision-staging --grpc-web
+                    '''
                 }
             }
         }
