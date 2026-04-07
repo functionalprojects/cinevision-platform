@@ -329,7 +329,7 @@ pipeline {
         }
 
         // -------------------------------
-        // Manual Approval with kubectl and ArgoCD using AWS credentials
+        // Manual Approval with kubectl, ArgoCD, and port-forward on port 9090
         // -------------------------------
         stage('Manual Approval for Staging') {
             when {
@@ -368,24 +368,26 @@ pipeline {
                     ]) {
                         sh '''
                             export PATH=$PWD/tools:$PATH
-                            # Configure kubectl for EKS (uses AWS credentials)
+                            # Configure kubectl for EKS
                             aws eks update-kubeconfig --region us-east-1 --name cinevision-staging
-                            # Kill any leftover port-forward
-                            pkill -f "kubectl port-forward.*argocd-server" || true
+                            # Kill any existing port-forward processes
+                            pkill -f "kubectl port-forward" || true
+                            # Use port 9090 to avoid conflicts
+                            PORT=9090
                             # Start port-forward in background
-                            kubectl port-forward -n argocd svc/argocd-server 8080:443 &
+                            kubectl port-forward -n argocd svc/argocd-server $PORT:443 > /dev/null 2>&1 &
                             PF_PID=$!
-                            # Wait for port to be ready
-                            echo "Waiting for port-forward to become ready..."
+                            # Wait for port-forward to be ready (up to 30 seconds)
+                            echo "Waiting for port-forward on $PORT..."
                             for i in $(seq 1 30); do
-                                if nc -z localhost 8080 2>/dev/null; then
-                                    echo "Port 8080 is open."
+                                if nc -z localhost $PORT 2>/dev/null; then
+                                    echo "Port $PORT is open."
                                     break
                                 fi
                                 sleep 1
                             done
-                            # Login to ArgoCD (AWS credentials are already in environment)
-                            ./tools/argocd login localhost:8080 --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --insecure
+                            # Login to ArgoCD using localhost
+                            ./tools/argocd login localhost:$PORT --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --insecure
                             # Sync staging application
                             ./tools/argocd app sync cinevision-staging --grpc-web
                             # Clean up
