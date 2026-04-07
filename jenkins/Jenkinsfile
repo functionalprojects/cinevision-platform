@@ -328,7 +328,7 @@ pipeline {
             }
         }
 
-        // Final Manual Approval with full AWS credentials and kubeconfig
+        // Final Manual Approval with full AWS  credentials and kubeconfig
         stage('Manual Approval for Staging') {
             when {
                 beforeInput true
