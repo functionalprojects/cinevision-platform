@@ -328,9 +328,7 @@ pipeline {
             }
         }
 
-        // -------------------------------
         // Final Manual Approval with full AWS credentials and kubeconfig
-        // -------------------------------
         stage('Manual Approval for Staging') {
             when {
                 beforeInput true
@@ -368,12 +366,10 @@ pipeline {
                     ]) {
                         sh '''
                             export PATH=$PWD/tools:$PATH
-                            # Configure kubeconfig for the EKS cluster (using the provided AWS credentials)
                             aws eks update-kubeconfig --region us-east-1 --name cinevision-staging
-                            # Use ArgoCD with automatic port‑forwarding
                             ./tools/argocd login --port-forward --port-forward-namespace argocd \
-                                --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --insecure
-                            ./tools/argocd app sync cinevision-staging --port-forward --port-forward-namespace argocd
+                                --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --insecure --grpc-web
+                            ./tools/argocd app sync cinevision-staging --port-forward --port-forward-namespace argocd --grpc-web
                         '''
                     }
                 }
