@@ -1,12 +1,12 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-patchesStrategicMerge:
 # - replicas-patch.yaml
+patchesStrategicMerge:
 - image-tags-patch.yaml
 
 images:
 - name: api-gateway
   newName: 590396427103.dkr.ecr.us-east-1.amazonaws.com/cinevision/api-gateway
-  newTag: 660525f
+  newTag: c88c00c
 resources:
 - ../../base
