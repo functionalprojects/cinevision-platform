@@ -329,7 +329,7 @@ pipeline {
         }
 
         // -------------------------------
-        // Manual Approval with workspace kubectl and AWS kubeconfig
+        // Manual Approval with kubectl and ArgoCD using AWS credentials
         // -------------------------------
         stage('Manual Approval for Staging') {
             when {
@@ -345,37 +345,13 @@ pipeline {
             }
             steps {
                 script {
-                    // Ensure tools directory exists and download kubectl if missing
                     sh '''
                         mkdir -p tools
                         if [ ! -f tools/kubectl ]; then
-                            echo "Downloading kubectl..."
                             curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
                             chmod +x kubectl
                             mv kubectl tools/
                         fi
-                        export PATH=$PWD/tools:$PATH
-                        kubectl version --client
-                    '''
-                    // Configure kubectl to access the EKS cluster using existing AWS credentials
-                    // The AWS credentials are already available from the ECR login stage (they persist in the environment)
-                    // We will use them to run `aws eks update-kubeconfig`
-                    withCredentials([[
-                        $class: 'UsernamePasswordMultiBinding',
-                        credentialsId: 'ecr-cred',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    ]]) {
-                        sh '''
-                            export PATH=$PWD/tools:$PATH
-                            # Update kubeconfig for the staging cluster (adjust cluster name if different)
-                            aws eks update-kubeconfig --region us-east-1 --name cinevision-staging
-                            # Verify access
-                            kubectl get nodes
-                        '''
-                    }
-                    // Download ArgoCD CLI
-                    sh '''
                         if [ ! -f tools/argocd ]; then
                             curl -sSL -o tools/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
                             chmod +x tools/argocd
@@ -384,10 +360,16 @@ pipeline {
                     '''
                     withCredentials([
                         string(credentialsId: 'argocd-username', variable: 'ARGOCD_USERNAME'),
-                        string(credentialsId: 'argocd-password', variable: 'ARGOCD_PASSWORD')
+                        string(credentialsId: 'argocd-password', variable: 'ARGOCD_PASSWORD'),
+                        [$class: 'UsernamePasswordMultiBinding',
+                         credentialsId: 'ecr-cred',
+                         usernameVariable: 'AWS_ACCESS_KEY_ID',
+                         passwordVariable: 'AWS_SECRET_ACCESS_KEY']
                     ]) {
                         sh '''
                             export PATH=$PWD/tools:$PATH
+                            # Configure kubectl for EKS (uses AWS credentials)
+                            aws eks update-kubeconfig --region us-east-1 --name cinevision-staging
                             # Kill any leftover port-forward
                             pkill -f "kubectl port-forward.*argocd-server" || true
                             # Start port-forward in background
@@ -402,8 +384,9 @@ pipeline {
                                 fi
                                 sleep 1
                             done
-                            # Login and sync
+                            # Login to ArgoCD (AWS credentials are already in environment)
                             ./tools/argocd login localhost:8080 --username $ARGOCD_USERNAME --password $ARGOCD_PASSWORD --insecure
+                            # Sync staging application
                             ./tools/argocd app sync cinevision-staging --grpc-web
                             # Clean up
                             kill $PF_PID
